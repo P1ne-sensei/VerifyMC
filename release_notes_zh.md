@@ -1,58 +1,20 @@
-[English](https://github.com/KiteMC/VerifyMC/releases/tag/v1.2.5) | 简体中文 | [官方文档](https://kitemc.com/docs/verifymc/)
+[English](https://github.com/KiteMC/VerifyMC/releases/tag/v1.2.6) | 简体中文 | [官方文档](https://kitemc.com/docs/verifymc/)
 
-# VerifyMC v1.2.5 更新日志
+# VerifyMC v1.2.6 更新日志
+
+## 🐛 Bug 修复
+
+### Velocity-CTD 兼容性修复 (Issue #14)
+- 修复了与 Velocity 分支版本（如 Velocity-CTD 3.5.0）的 Guice 依赖注入错误
+- 将 `javax.inject.Inject` 更改为 `com.google.inject.Inject` 以提升兼容性
+
+### 版本号显示修复 (Issue #15)
+- 修复了插件中版本号显示错误的问题
+- 统一了所有配置文件中的版本号管理
 
 ## ✨ 新功能
 
-### 自托管图形验证码系统
-- 新增图形验证码验证（支持数学题/文字类型）
-- 无需外部服务，完全自托管
-- 可作为邮箱验证的替代或补充
-
-### Discord OAuth2 集成
-- 注册时可绑定 Discord 账户
-- 支持可选或强制绑定 Discord
-- Discord ID 持久化存储到数据库
-
-### 用户邮件通知
-- 白名单审核通过/拒绝时自动发送邮件通知
-- 根据用户界面语言自动切换邮件模板语言
-
-### 注册问卷系统
-- 可自定义注册问卷
-- 问题和选项支持多语言
-
-### 基岩版支持
-- 支持 Geyser/Floodgate 玩家前缀
-- 可配置基岩版用户名前缀
-
-### BungeeCord/Velocity 代理插件
-- 新增 `VerifyMC-Proxy` 模块用于代理端登录拦截
-- 同时支持 BungeeCord 和 Velocity 代理
-- 支持从远程自动更新配置
-
-## 🎨 界面改进
-
-### Glass 主题增强
-- 重新设计的注册表单，带有动画渐变边框
-- 增强的输入框，聚焦时带有发光效果
-- 首页新增浮动光球背景效果
-- 改进的按钮动画，带有光泽效果
-- 导航栏新增渐变装饰线
-- 增强的页脚，带有渐变边框和心跳动画
-
-### 邮件模板
-- 所有邮件模板统一现代化设计
-- 渐变色头部配合图标
-- 改进的验证码显示样式
-- 新增过期提醒框
-
-## 🔧 改进
-
-- 修复 Discord 图标显示问题
-- 页脚年份动态显示（2025-当前年份）
-- 移除 default 主题（glassx 现为唯一主题）
-- 配置注释移至独立帮助文件（config_help_en.yml、config_help_zh.yml）
-- 全局 CSS 自定义属性，保证主题一致性
-- 自定义滚动条样式
-- 文本选中样式
+### Minecraft 1.21.11 支持 (Issue #16)
+- 添加对 Minecraft 1.21.11 的官方支持
+- 更新 Velocity API 至 3.4.0-SNAPSHOT
+- 更新 Waterfall API 至 1.21-R0.1-SNAPSHOT

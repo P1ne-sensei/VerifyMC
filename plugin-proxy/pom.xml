@@ -6,7 +6,7 @@
 
     <groupId>team.kitemc</groupId>
     <artifactId>verifymc-proxy</artifactId>
-    <version>1.0.0</version>
+    <version>1.2.6</version>
     <packaging>jar</packaging>
     <name>VerifyMC-Proxy</name>
     <description>VerifyMC proxy plugin for BungeeCord and Velocity</description>
@@ -34,7 +34,7 @@
         <dependency>
             <groupId>io.github.waterfallmc</groupId>
             <artifactId>waterfall-api</artifactId>
-            <version>1.20-R0.1-SNAPSHOT</version>
+            <version>1.21-R0.1-SNAPSHOT</version>
             <scope>provided</scope>
             <exclusions>
                 <exclusion>
@@ -56,7 +56,7 @@
         <dependency>
             <groupId>com.velocitypowered</groupId>
             <artifactId>velocity-api</artifactId>
-            <version>3.3.0-SNAPSHOT</version>
+            <version>3.4.0-SNAPSHOT</version>
             <scope>provided</scope>
         </dependency>
         
