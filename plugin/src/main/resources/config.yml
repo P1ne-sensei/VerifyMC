@@ -1,5 +1,6 @@
 language: en
 debug: false
+trust_proxy: false
 web_port: 8080
 web_server_prefix: '[ Name ]'
 auth_methods:

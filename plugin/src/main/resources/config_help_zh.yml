@@ -5,6 +5,8 @@
 language: zh
 # 开启后，控制台会输出详细的日志，用于故障排查。
 debug: false
+# 是否信任反向代理的 X-Forwarded-For 头。仅在使用 Nginx/Apache 等反代时开启，否则攻击者可伪造 IP 绕过限流。
+trust_proxy: false
 
 # ----------------------------------------
 # 网页服务器
@@ -19,7 +21,7 @@ web_server_prefix: '[ Name ]'
 # ----------------------------------------
 # 支持的验证方式。可选: 'email'（邮箱验证码）, 'captcha'（图形验证码）。
 # 可以同时使用多种方式，例如: [email, captcha]
-# 
+#
 # 【重要】仅配置下方的 captcha: 部分不会启用图形验证码！
 # 要启用图形验证码，必须在此列表中添加 'captcha'：
 #   仅使用图形验证码: auth_methods: [captcha]
@@ -112,7 +114,7 @@ auto_update_email: true
 # 如果为 true，将自动更新主题文件。
 auto_update_static: true
 # 如果为 true，将在自动更新前完整备份插件数据文件夹。
-backup_on_update: true 
+backup_on_update: true
 
 # ----------------------------------------
 # 邮箱注册限制
@@ -131,7 +133,7 @@ email_domain_whitelist:
   - hotmail.com
   - icloud.com
   - yahoo.com
-  - foxmail.com 
+  - foxmail.com
 
 # ----------------------------------------
 # 存储与数据迁移
@@ -146,7 +148,7 @@ storage:
     port: 3306
     database: verifymc
     user: root
-    password: yourpassword 
+    password: yourpassword
 
 # ----------------------------------------
 # Authme集成配置

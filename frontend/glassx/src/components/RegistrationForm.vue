@@ -218,10 +218,17 @@ const validateUsername = () => {
   }
 
   const regex = getEffectiveUsernameRegex()
-  if (regex && !new RegExp(regex).test(getNormalizedUsername())) {
-    errors.username = t('register.validation.username_format', { regex })
-  } else if (!regex && !/^[a-zA-Z0-9_]+$/.test(username)) {
-    errors.username = t('register.validation.username_format', { regex: '^[a-zA-Z0-9_]+$' })
+  try {
+    if (regex && !new RegExp(regex).test(getNormalizedUsername())) {
+      errors.username = t('register.validation.username_format', { regex })
+    } else if (!regex && !/^[a-zA-Z0-9_]+$/.test(username)) {
+      errors.username = t('register.validation.username_format', { regex: '^[a-zA-Z0-9_]+$' })
+    }
+  } catch (e) {
+    console.warn('Invalid username_regex from config:', regex, e)
+    if (!/^[a-zA-Z0-9_-]{3,16}$/.test(getNormalizedUsername())) {
+      errors.username = t('register.validation.username_format', { regex: '^[a-zA-Z0-9_-]{3,16}$' })
+    }
   }
 }
 
@@ -259,8 +266,17 @@ const validatePassword = () => {
   if (shouldShowPassword.value) {
     if (!form.password) {
       errors.password = t('register.validation.password_required')
-    } else if (authmeConfig.value?.password_regex && !new RegExp(authmeConfig.value.password_regex).test(form.password)) {
-      errors.password = t('register.validation.password_format', { regex: authmeConfig.value.password_regex })
+    } else if (authmeConfig.value?.password_regex) {
+      try {
+        if (!new RegExp(authmeConfig.value.password_regex).test(form.password)) {
+          errors.password = t('register.validation.password_format', { regex: authmeConfig.value.password_regex })
+        }
+      } catch (e) {
+        console.warn('Invalid password_regex from config:', authmeConfig.value.password_regex, e)
+        if (!/^[a-zA-Z0-9_]{3,16}$/.test(form.password)) {
+          errors.password = t('register.validation.password_format', { regex: '^[a-zA-Z0-9_]{3,16}$' })
+        }
+      }
     }
   }
 }

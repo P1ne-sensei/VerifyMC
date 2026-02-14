@@ -59,7 +59,12 @@ public class AuthmeService {
             return false;
         }
         String regex = plugin.getConfig().getString("authme.password_regex", "^[a-zA-Z0-9_]{3,16}$");
-        return Pattern.matches(regex, password);
+        try {
+            return Pattern.matches(regex, password);
+        } catch (java.util.regex.PatternSyntaxException e) {
+            plugin.getLogger().warning("[VerifyMC] Invalid authme.password_regex in config: " + regex + " — " + e.getMessage());
+            return Pattern.matches("^[a-zA-Z0-9_]{3,16}$", password);
+        }
     }
 
     /**
@@ -73,16 +78,16 @@ public class AuthmeService {
             debugLog("AuthMe not enabled, skipping registration");
             return false;
         }
-        
+
         debugLog("Registering user to AuthMe: " + username);
-        
+
         // Ensure execution in main thread
         if (Bukkit.isPrimaryThread()) {
             return executeAuthmeCommand("register " + username + " " + password);
         } else {
             // If in async thread, use sync task to execute in main thread
             try {
-                return Bukkit.getScheduler().callSyncMethod(plugin, () -> 
+                return Bukkit.getScheduler().callSyncMethod(plugin, () ->
                     executeAuthmeCommand("register " + username + " " + password)
                 ).get();
             } catch (Exception e) {
@@ -102,16 +107,16 @@ public class AuthmeService {
             debugLog("AuthMe not enabled, skipping unregistration");
             return false;
         }
-        
+
         debugLog("Unregistering user from AuthMe: " + username);
-        
+
         // Ensure execution in main thread
         if (Bukkit.isPrimaryThread()) {
             return executeAuthmeCommand("purgeplayer " + username);
         } else {
             // If in async thread, use sync task to execute in main thread
             try {
-                return Bukkit.getScheduler().callSyncMethod(plugin, () -> 
+                return Bukkit.getScheduler().callSyncMethod(plugin, () ->
                     executeAuthmeCommand("purgeplayer " + username)
                 ).get();
             } catch (Exception e) {
@@ -132,16 +137,16 @@ public class AuthmeService {
             debugLog("AuthMe not enabled, skipping password change");
             return false;
         }
-        
+
         debugLog("Changing password in AuthMe: " + username);
-        
+
         // Ensure execution in main thread
         if (Bukkit.isPrimaryThread()) {
             return executeAuthmeCommand("password " + username + " " + newPassword);
         } else {
             // If in async thread, use sync task to execute in main thread
             try {
-                return Bukkit.getScheduler().callSyncMethod(plugin, () -> 
+                return Bukkit.getScheduler().callSyncMethod(plugin, () ->
                     executeAuthmeCommand("password " + username + " " + newPassword)
                 ).get();
             } catch (Exception e) {
@@ -177,4 +182,4 @@ public class AuthmeService {
             plugin.getLogger().info("[DEBUG] AuthmeService: " + msg);
         }
     }
-} 
+}

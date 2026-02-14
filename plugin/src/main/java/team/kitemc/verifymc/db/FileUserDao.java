@@ -30,7 +30,7 @@ public class FileUserDao implements UserDao {
     private void debugLog(String msg) {
         if (debug && plugin != null) plugin.getLogger().info("[DEBUG] FileUserDao: " + msg);
     }
-    
+
     /**
      * Safely convert regTime value to Long, handling both Long and Double types
      * @param regTimeValue The regTime value from JSON
@@ -77,20 +77,20 @@ public class FileUserDao implements UserDao {
                             hasUpgraded = true;
                             debugLog("Added missing password field for user: " + user.get("username"));
                         }
-                        
+
                         // Ensure all required fields exist
                         if (!user.containsKey("uuid")) {
                             user.put("uuid", entry.getKey());
                             hasUpgraded = true;
                             debugLog("Added missing uuid field for user: " + user.get("username"));
                         }
-                        
+
                         if (!user.containsKey("regTime")) {
                             user.put("regTime", System.currentTimeMillis());
                             hasUpgraded = true;
                             debugLog("Added missing regTime field for user: " + user.get("username"));
                         }
-                        
+
                         // Add discord_id field if missing
                         if (!user.containsKey("discord_id")) {
                             user.put("discord_id", null);
@@ -116,10 +116,10 @@ public class FileUserDao implements UserDao {
                         }
                     }
                 }
-                
+
                 users.putAll(loaded);
                 debugLog("Loaded " + loaded.size() + " users from database");
-                
+
                 // If data upgrade occurred, save immediately
                 if (hasUpgraded) {
                     debugLog("Data format upgraded, saving updated data");
@@ -145,6 +145,20 @@ public class FileUserDao implements UserDao {
     }
 
 
+    private String hashPassword(String password) {
+        if (password == null || password.isEmpty()) return null;
+        try {
+            java.security.MessageDigest md = java.security.MessageDigest.getInstance("SHA-256");
+            byte[] hash = md.digest(password.getBytes(java.nio.charset.StandardCharsets.UTF_8));
+            StringBuilder sb = new StringBuilder();
+            for (byte b : hash) sb.append(String.format("%02x", b));
+            return sb.toString();
+        } catch (java.security.NoSuchAlgorithmException e) {
+            debugLog("SHA-256 not available, storing password hash failed");
+            return null;
+        }
+    }
+
     private void applyQuestionnaireAuditFields(Map<String, Object> user, Integer questionnaireScore, Boolean questionnairePassed,
                                                String questionnaireReviewSummary, Long questionnaireScoredAt) {
         user.put("questionnaire_score", questionnaireScore);
@@ -154,19 +168,24 @@ public class FileUserDao implements UserDao {
     }
 
     @Override
-    public boolean registerUser(String uuid, String username, String email, String status) {
+    public synchronized boolean registerUser(String uuid, String username, String email, String status) {
         return registerUser(uuid, username, email, status, null, null, null, null);
     }
 
     @Override
-    public boolean registerUser(String uuid, String username, String email, String status,
+    public synchronized boolean registerUser(String uuid, String username, String email, String status,
                                 Integer questionnaireScore, Boolean questionnairePassed,
                                 String questionnaireReviewSummary, Long questionnaireScoredAt) {
         debugLog("registerUser called: uuid=" + uuid + ", username=" + username + ", email=" + email + ", status=" + status);
         try {
-            // Check if user already exists
+            // Check if user already exists by UUID
             if (users.containsKey(uuid)) {
                 debugLog("User already exists with UUID: " + uuid + ", skipping registration");
+                return false;
+            }
+            // Check if username already exists (prevent race condition)
+            if (getUserByUsername(username) != null) {
+                debugLog("Username already exists: " + username + ", skipping registration");
                 return false;
             }
 
@@ -194,14 +213,19 @@ public class FileUserDao implements UserDao {
     }
 
     @Override
-    public boolean registerUser(String uuid, String username, String email, String status, String password,
+    public synchronized boolean registerUser(String uuid, String username, String email, String status, String password,
                                 Integer questionnaireScore, Boolean questionnairePassed,
                                 String questionnaireReviewSummary, Long questionnaireScoredAt) {
         debugLog("registerUser with password called: uuid=" + uuid + ", username=" + username + ", email=" + email + ", status=" + status);
         try {
-            // Check if user already exists
+            // Check if user already exists by UUID
             if (users.containsKey(uuid)) {
                 debugLog("User already exists with UUID: " + uuid + ", skipping registration");
+                return false;
+            }
+            // Check if username already exists (prevent race condition)
+            if (getUserByUsername(username) != null) {
+                debugLog("Username already exists: " + username + ", skipping registration");
                 return false;
             }
 
@@ -210,7 +234,7 @@ public class FileUserDao implements UserDao {
             user.put("username", username);
             user.put("email", email);
             user.put("status", status);
-            user.put("password", password);
+            user.put("password", hashPassword(password));
             user.put("regTime", System.currentTimeMillis());
             applyQuestionnaireAuditFields(user, questionnaireScore, questionnairePassed, questionnaireReviewSummary, questionnaireScoredAt);
             debugLog("Adding user with password to map: " + user);
@@ -249,10 +273,10 @@ public class FileUserDao implements UserDao {
     public boolean updateUserPassword(String uuidOrName, String password) {
         debugLog("updateUserPassword called: uuidOrName=" + uuidOrName);
         Map<String, Object> user = null;
-        
+
         // First try to find as UUID
         user = users.get(uuidOrName);
-        
+
         // If not found, try to find as username
         if (user == null) {
             for (Map<String, Object> u : users.values()) {
@@ -262,13 +286,13 @@ public class FileUserDao implements UserDao {
                 }
             }
         }
-        
+
         if (user == null) {
             debugLog("User not found: " + uuidOrName);
             return false;
         }
-        
-        user.put("password", password);
+
+        user.put("password", hashPassword(password));
         save();
         debugLog("User password updated: " + user.get("username"));
         return true;
@@ -341,12 +365,12 @@ public class FileUserDao implements UserDao {
         debugLog("Found " + result.size() + " pending users");
         return result;
     }
-    
+
     @Override
     public List<Map<String, Object>> getUsersWithPagination(int page, int pageSize) {
         debugLog("Getting users with pagination: page=" + page + ", pageSize=" + pageSize);
         List<Map<String, Object>> allUsers = new ArrayList<>(users.values());
-        
+
         // Sort by registration time (newest first)
         allUsers.sort((a, b) -> {
             Long timeA = getRegTimeAsLong(a.get("regTime"));
@@ -355,32 +379,32 @@ public class FileUserDao implements UserDao {
             if (timeB == null) timeB = 0L;
             return timeB.compareTo(timeA);
         });
-        
+
         int startIndex = (page - 1) * pageSize;
         int endIndex = Math.min(startIndex + pageSize, allUsers.size());
-        
+
         if (startIndex >= allUsers.size()) {
             debugLog("Page " + page + " is out of range, returning empty list");
             return new ArrayList<>();
         }
-        
+
         List<Map<String, Object>> result = allUsers.subList(startIndex, endIndex);
         debugLog("Returning " + result.size() + " users for page " + page);
         return result;
     }
-    
+
     @Override
     public int getTotalUserCount() {
         int count = users.size();
         debugLog("Total user count: " + count);
         return count;
     }
-    
+
     @Override
     public List<Map<String, Object>> getUsersWithPaginationAndSearch(int page, int pageSize, String searchQuery) {
         debugLog("Getting users with pagination and search: page=" + page + ", pageSize=" + pageSize + ", query=" + searchQuery);
         List<Map<String, Object>> filteredUsers = new ArrayList<>();
-        
+
         // Filter users based on search query
         String query = searchQuery != null ? searchQuery.toLowerCase().trim() : "";
         for (Map<String, Object> user : users.values()) {
@@ -394,7 +418,7 @@ public class FileUserDao implements UserDao {
                 }
             }
         }
-        
+
         // Sort by registration time (newest first)
         filteredUsers.sort((a, b) -> {
             Long timeA = getRegTimeAsLong(a.get("regTime"));
@@ -403,26 +427,26 @@ public class FileUserDao implements UserDao {
             if (timeB == null) timeB = 0L;
             return timeB.compareTo(timeA);
         });
-        
+
         int startIndex = (page - 1) * pageSize;
         int endIndex = Math.min(startIndex + pageSize, filteredUsers.size());
-        
+
         if (startIndex >= filteredUsers.size()) {
             debugLog("Page " + page + " is out of range for search results, returning empty list");
             return new ArrayList<>();
         }
-        
+
         List<Map<String, Object>> result = filteredUsers.subList(startIndex, endIndex);
         debugLog("Returning " + result.size() + " users for page " + page + " with search query: " + searchQuery);
         return result;
     }
-    
+
     @Override
     public int getTotalUserCountWithSearch(String searchQuery) {
         debugLog("Getting total user count with search: query=" + searchQuery);
         int count = 0;
         String query = searchQuery != null ? searchQuery.toLowerCase().trim() : "";
-        
+
         for (Map<String, Object> user : users.values()) {
             if (query.isEmpty()) {
                 count++;
@@ -434,11 +458,11 @@ public class FileUserDao implements UserDao {
                 }
             }
         }
-        
+
         debugLog("Total user count with search '" + searchQuery + "': " + count);
         return count;
     }
-    
+
     @Override
     public int getApprovedUserCount() {
         debugLog("Getting approved user count (excluding pending)");
@@ -452,13 +476,13 @@ public class FileUserDao implements UserDao {
         debugLog("Approved user count: " + count);
         return count;
     }
-    
+
     @Override
     public int getApprovedUserCountWithSearch(String searchQuery) {
         debugLog("Getting approved user count with search: query=" + searchQuery);
         int count = 0;
         String query = searchQuery != null ? searchQuery.toLowerCase().trim() : "";
-        
+
         for (Map<String, Object> user : users.values()) {
             String status = user.get("status") != null ? user.get("status").toString() : "";
             if (!"pending".equalsIgnoreCase(status)) {
@@ -473,16 +497,16 @@ public class FileUserDao implements UserDao {
                 }
             }
         }
-        
+
         debugLog("Approved user count with search '" + searchQuery + "': " + count);
         return count;
     }
-    
+
     @Override
     public List<Map<String, Object>> getApprovedUsersWithPagination(int page, int pageSize) {
         debugLog("Getting approved users with pagination: page=" + page + ", pageSize=" + pageSize);
         List<Map<String, Object>> approvedUsers = new ArrayList<>();
-        
+
         // Filter out pending users
         for (Map<String, Object> user : users.values()) {
             String status = user.get("status") != null ? user.get("status").toString() : "";
@@ -490,7 +514,7 @@ public class FileUserDao implements UserDao {
                 approvedUsers.add(user);
             }
         }
-        
+
         // Sort by registration time (newest first)
         approvedUsers.sort((a, b) -> {
             Long timeA = getRegTimeAsLong(a.get("regTime"));
@@ -499,25 +523,25 @@ public class FileUserDao implements UserDao {
             if (timeB == null) timeB = 0L;
             return timeB.compareTo(timeA);
         });
-        
+
         int startIndex = (page - 1) * pageSize;
         int endIndex = Math.min(startIndex + pageSize, approvedUsers.size());
-        
+
         if (startIndex >= approvedUsers.size()) {
             debugLog("Page " + page + " is out of range for approved users, returning empty list");
             return new ArrayList<>();
         }
-        
+
         List<Map<String, Object>> result = approvedUsers.subList(startIndex, endIndex);
         debugLog("Returning " + result.size() + " approved users for page " + page);
         return result;
     }
-    
+
     @Override
     public List<Map<String, Object>> getApprovedUsersWithPaginationAndSearch(int page, int pageSize, String searchQuery) {
         debugLog("Getting approved users with pagination and search: page=" + page + ", pageSize=" + pageSize + ", query=" + searchQuery);
         List<Map<String, Object>> filteredUsers = new ArrayList<>();
-        
+
         // Filter users based on search query and exclude pending users
         String query = searchQuery != null ? searchQuery.toLowerCase().trim() : "";
         for (Map<String, Object> user : users.values()) {
@@ -534,7 +558,7 @@ public class FileUserDao implements UserDao {
                 }
             }
         }
-        
+
         // Sort by registration time (newest first)
         filteredUsers.sort((a, b) -> {
             Long timeA = getRegTimeAsLong(a.get("regTime"));
@@ -543,28 +567,28 @@ public class FileUserDao implements UserDao {
             if (timeB == null) timeB = 0L;
             return timeB.compareTo(timeA);
         });
-        
+
         int startIndex = (page - 1) * pageSize;
         int endIndex = Math.min(startIndex + pageSize, filteredUsers.size());
-        
+
         if (startIndex >= filteredUsers.size()) {
             debugLog("Page " + page + " is out of range for approved users search results, returning empty list");
             return new ArrayList<>();
         }
-        
+
         List<Map<String, Object>> result = filteredUsers.subList(startIndex, endIndex);
         debugLog("Returning " + result.size() + " approved users for page " + page + " with search query: " + searchQuery);
         return result;
     }
-    
+
     @Override
     public boolean updateUserDiscordId(String uuidOrName, String discordId) {
         debugLog("updateUserDiscordId called: uuidOrName=" + uuidOrName + ", discordId=" + discordId);
         Map<String, Object> user = null;
-        
+
         // First try to find as UUID
         user = users.get(uuidOrName);
-        
+
         // If not found, try to find as username
         if (user == null) {
             for (Map<String, Object> u : users.values()) {
@@ -574,18 +598,18 @@ public class FileUserDao implements UserDao {
                 }
             }
         }
-        
+
         if (user == null) {
             debugLog("User not found: " + uuidOrName);
             return false;
         }
-        
+
         user.put("discord_id", discordId);
         save();
         debugLog("User Discord ID updated: " + user.get("username") + " -> " + discordId);
         return true;
     }
-    
+
     @Override
     public Map<String, Object> getUserByDiscordId(String discordId) {
         debugLog("Getting user by Discord ID: " + discordId);
@@ -599,10 +623,10 @@ public class FileUserDao implements UserDao {
         debugLog("User not found with Discord ID: " + discordId);
         return null;
     }
-    
+
     @Override
     public boolean isDiscordIdLinked(String discordId) {
         debugLog("Checking if Discord ID is linked: " + discordId);
         return getUserByDiscordId(discordId) != null;
     }
-} 
+}

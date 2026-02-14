@@ -5,6 +5,8 @@
 language: zh
 # Enable detailed console logs for troubleshooting.
 debug: false
+# Whether to trust the X-Forwarded-For header from a reverse proxy. Only enable when behind Nginx/Apache, otherwise attackers can spoof IPs to bypass rate limiting.
+trust_proxy: false
 
 # ----------------------------------------
 # Web Server
@@ -19,7 +21,7 @@ web_server_prefix: '[ Name ]'
 # ----------------------------------------
 # Supported authentication methods. Options: 'email' (email verification), 'captcha' (graphical captcha).
 # You can use multiple methods, e.g.: [email, captcha]
-# 
+#
 # [IMPORTANT] Configuring the captcha: section below does NOT enable captcha!
 # To enable captcha, you MUST add 'captcha' to this list:
 #   Captcha only: auth_methods: [captcha]
@@ -112,7 +114,7 @@ auto_update_email: true
 # If true, automatically updates theme files.
 auto_update_static: true
 # If true, creates a full backup of the plugin data folder before any auto-updates.
-backup_on_update: true 
+backup_on_update: true
 
 # ----------------------------------------
 # Email Registration Restrictions
@@ -131,7 +133,7 @@ email_domain_whitelist:
   - hotmail.com
   - icloud.com
   - yahoo.com
-  - foxmail.com 
+  - foxmail.com
 
 # ----------------------------------------
 # Storage & Data Migration
@@ -146,7 +148,7 @@ storage:
     port: 3306
     database: verifymc
     user: root
-    password: yourpassword 
+    password: yourpassword
 
 # ----------------------------------------
 # Authme Integration Configuration

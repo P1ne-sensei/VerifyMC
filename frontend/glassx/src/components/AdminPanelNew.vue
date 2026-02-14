@@ -880,7 +880,8 @@ onMounted(async () => {
     const wsProtocol = window.location.protocol === 'https:' ? 'wss' : 'ws';
     const wsHost = window.location.hostname;
     const wsPort = window.location.port ? (parseInt(window.location.port) + 1) : 8081;
-    const wsUrl = `${wsProtocol}://${wsHost}:${wsPort}`;
+    const wsToken = sessionService.getToken() || '';
+    const wsUrl = `${wsProtocol}://${wsHost}:${wsPort}?token=${encodeURIComponent(wsToken)}`;
     try {
       const ws = new WebSocket(wsUrl);
       ws.onmessage = (event) => {

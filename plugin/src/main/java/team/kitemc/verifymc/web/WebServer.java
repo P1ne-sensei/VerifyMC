@@ -49,10 +49,16 @@ public class WebServer {
     private final ReviewWebSocketServer wsServer;
     private final ResourceBundle messages;
     private final boolean debug;
-    private final HashMap<String, ResourceBundle> languageCache = new HashMap<>();
-    
+    private final ConcurrentHashMap<String, ResourceBundle> languageCache = new ConcurrentHashMap<>();
+
     // Authentication related
     private final ConcurrentHashMap<String, Long> validTokens = new ConcurrentHashMap<>();
+    private final ConcurrentHashMap<String, WindowRateLimitRecord> adminLoginRateLimitStore = new ConcurrentHashMap<>();
+    private final ConcurrentHashMap<String, WindowRateLimitRecord> sendCodeIpRateLimitStore = new ConcurrentHashMap<>();
+    private static final int ADMIN_LOGIN_MAX_ATTEMPTS = 5;
+    private static final long ADMIN_LOGIN_WINDOW_MS = 300000; // 5 minutes
+    private static final int SEND_CODE_IP_MAX = 10;
+    private static final long SEND_CODE_IP_WINDOW_MS = 600000; // 10 minutes
     private final Pattern EMAIL_PATTERN = Pattern.compile("^[A-Za-z0-9+_.-]+@(.+)$");
     private final Pattern UUID_PATTERN = Pattern.compile("^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$");
     private static final long TOKEN_EXPIRY_TIME = 3600000; // 1 hour
@@ -153,14 +159,36 @@ public class WebServer {
     }
 
     private String getClientIp(HttpExchange exchange) {
-        String forwarded = exchange.getRequestHeaders().getFirst("X-Forwarded-For");
-        if (forwarded != null && !forwarded.isBlank()) {
-            return forwarded.split(",")[0].trim();
+        boolean trustProxy = plugin.getConfig().getBoolean("trust_proxy", false);
+        if (trustProxy) {
+            String forwarded = exchange.getRequestHeaders().getFirst("X-Forwarded-For");
+            if (forwarded != null && !forwarded.isBlank()) {
+                return forwarded.split(",")[0].trim();
+            }
         }
         if (exchange.getRemoteAddress() != null && exchange.getRemoteAddress().getAddress() != null) {
             return exchange.getRemoteAddress().getAddress().getHostAddress();
         }
         return "unknown";
+    }
+
+    private RateLimitDecision checkIpRateLimit(ConcurrentHashMap<String, WindowRateLimitRecord> store, String ip, int limit, long windowMs) {
+        if (ip == null || ip.isBlank() || limit <= 0 || windowMs <= 0) {
+            return new RateLimitDecision(true, 0L);
+        }
+        long now = System.currentTimeMillis();
+        WindowRateLimitRecord rec = store.compute(ip, (k, old) -> {
+            if (old == null || now - old.windowStart >= windowMs) {
+                return new WindowRateLimitRecord(1, now);
+            }
+            old.count++;
+            return old;
+        });
+        if (rec.count > limit) {
+            long retryAfterMs = windowMs - (now - rec.windowStart);
+            return new RateLimitDecision(false, Math.max(1L, retryAfterMs));
+        }
+        return new RateLimitDecision(true, 0L);
     }
 
     private String maskEmail(String email) {
@@ -252,7 +280,7 @@ public class WebServer {
         String token = authHeader.substring(7);
         return validateToken(token);
     }
-    
+
     /**
      * Token validation
      * @param token Token to validate
@@ -269,7 +297,7 @@ public class WebServer {
         }
         return true;
     }
-    
+
     /**
      * Generate secure token
      * @return Generated secure token
@@ -279,15 +307,15 @@ public class WebServer {
             String timestamp = String.valueOf(System.currentTimeMillis());
             String random = String.valueOf(Math.random());
             String secret = plugin.getConfig().getString("admin.password", "default_secret");
-            
+
             MessageDigest md = MessageDigest.getInstance("SHA-256");
             String combined = timestamp + random + secret;
             byte[] hash = md.digest(combined.getBytes());
             String token = Base64.getEncoder().encodeToString(hash);
-            
+
             // Store token and expiry time
             validTokens.put(token, System.currentTimeMillis() + TOKEN_EXPIRY_TIME);
-            
+
             return token;
         } catch (NoSuchAlgorithmException e) {
             // Fallback to simple token
@@ -296,24 +324,29 @@ public class WebServer {
             return token;
         }
     }
-    
+
     /**
      * Input validation methods
      */
     private boolean isValidEmail(String email) {
         return email != null && EMAIL_PATTERN.matcher(email).matches();
     }
-    
+
     private boolean isValidUUID(String uuid) {
         return uuid != null && UUID_PATTERN.matcher(uuid).matches();
     }
-    
+
     private boolean isValidUsername(String username) {
         if (username == null || username.trim().isEmpty()) {
             return false;
         }
         String regex = getUsernameRegexForUser(username);
-        return username.matches(regex);
+        try {
+            return username.matches(regex);
+        } catch (java.util.regex.PatternSyntaxException e) {
+            plugin.getLogger().warning("[VerifyMC] Invalid username_regex in config: " + regex + " — " + e.getMessage());
+            return username.matches("^[a-zA-Z0-9_-]{3,16}$");
+        }
     }
 
     private String getUsernameRegexForUser(String username) {
@@ -329,22 +362,31 @@ public class WebServer {
     private boolean isUsernameCaseConflict(String username) {
         return ((team.kitemc.verifymc.VerifyMC)plugin).isUsernameCaseConflict(username);
     }
-    
+
     /**
      * Scheduled task to clean up expired tokens
      */
     private void startTokenCleanupTask() {
-        new Thread(() -> {
+        Thread cleanupThread = new Thread(() -> {
             while (true) {
                 try {
                     Thread.sleep(300000); // Clean up every 5 minutes
                     long currentTime = System.currentTimeMillis();
                     validTokens.entrySet().removeIf(entry -> entry.getValue() < currentTime);
+                    questionnaireSubmissionStore.entrySet().removeIf(entry -> entry.getValue().isExpired());
+                    questionnaireRateLimitStore.entrySet().removeIf(entry -> {
+                        long windowMs = plugin.getConfig().getLong("questionnaire.rate_limit.window_ms", 300000L);
+                        return currentTime - entry.getValue().windowStart >= windowMs;
+                    });
+                    adminLoginRateLimitStore.entrySet().removeIf(entry -> currentTime - entry.getValue().windowStart >= ADMIN_LOGIN_WINDOW_MS);
+                    sendCodeIpRateLimitStore.entrySet().removeIf(entry -> currentTime - entry.getValue().windowStart >= SEND_CODE_IP_WINDOW_MS);
                 } catch (InterruptedException e) {
                     break;
                 }
             }
-        }).start();
+        });
+        cleanupThread.setDaemon(true);
+        cleanupThread.start();
     }
 
     /**
@@ -435,13 +477,13 @@ public class WebServer {
 
     public void start() throws IOException {
         server = HttpServer.create(new InetSocketAddress(port), 0);
-        
+
         // Start token cleanup task
         startTokenCleanupTask();
-        
+
         // Static resources
         server.createContext("/", new StaticHandler(staticDir));
-        
+
         // API examples
         server.createContext("/api/ping", exchange -> {
             String resp = "{\"msg\":\"pong\"}";
@@ -452,7 +494,7 @@ public class WebServer {
             os.write(data);
             os.close();
         });
-        
+
         // /api/config configuration interface
         server.createContext("/api/config", exchange -> {
             JSONObject resp = new JSONObject();
@@ -479,7 +521,7 @@ public class WebServer {
             authme.put("password_regex", config.getString("authme.password_regex", "^[a-zA-Z0-9_]{3,16}$"));
             // Username regex pattern
             frontend.put("username_regex", config.getString("username_regex", "^[a-zA-Z0-9_-]{3,16}$"));
-            
+
             // Captcha configuration
             JSONObject captcha = new JSONObject();
             java.util.List<String> authMethods = config.getStringList("auth_methods");
@@ -488,24 +530,24 @@ public class WebServer {
             captcha.put("enabled", authMethods.contains("captcha"));
             captcha.put("email_enabled", authMethods.contains("email"));
             captcha.put("type", config.getString("captcha.type", "math"));
-            
+
             // Bedrock player configuration
             JSONObject bedrock = new JSONObject();
             bedrock.put("enabled", config.getBoolean("bedrock.enabled", false));
             bedrock.put("prefix", config.getString("bedrock.prefix", "."));
             bedrock.put("username_regex", config.getString("bedrock.username_regex", "^\\.[a-zA-Z0-9_\\s]{3,16}$"));
-            
+
             // Questionnaire configuration
             JSONObject questionnaire = new JSONObject();
             questionnaire.put("enabled", questionnaireService.isEnabled());
             questionnaire.put("pass_score", questionnaireService.getPassScore());
             questionnaire.put("has_text_questions", questionnaireService.hasTextQuestions());
-            
+
             // Discord configuration
             JSONObject discord = new JSONObject();
             discord.put("enabled", discordService.isEnabled());
             discord.put("required", discordService.isRequired());
-            
+
             resp.put("login", login);
             resp.put("admin", admin);
             resp.put("frontend", frontend);
@@ -516,16 +558,16 @@ public class WebServer {
             resp.put("discord", discord);
             sendJson(exchange, resp);
         });
-        
+
         // /api/check-whitelist - Check if a player is on the whitelist (for proxy plugins)
         server.createContext("/api/check-whitelist", exchange -> {
             debugLog("/api/check-whitelist called");
-            if (!"GET".equals(exchange.getRequestMethod())) { 
-                exchange.sendResponseHeaders(405, 0); 
-                exchange.close(); 
-                return; 
+            if (!"GET".equals(exchange.getRequestMethod())) {
+                exchange.sendResponseHeaders(405, 0);
+                exchange.close();
+                return;
             }
-            
+
             String query = exchange.getRequestURI().getQuery();
             String username = null;
             if (query != null && query.contains("username=")) {
@@ -536,25 +578,24 @@ public class WebServer {
                     // Keep original value
                 }
             }
-            
+
             JSONObject resp = new JSONObject();
-            
+
             if (username == null || username.trim().isEmpty()) {
                 resp.put("success", false);
                 resp.put("msg", "Username parameter is required");
                 sendJson(exchange, resp);
                 return;
             }
-            
+
             // Look up user in database
             java.util.Map<String, Object> user = userDao.getUserByUsername(username);
-            
+
             if (user != null) {
                 resp.put("success", true);
                 resp.put("found", true);
                 resp.put("username", user.get("username"));
                 resp.put("status", user.get("status"));
-                resp.put("email", user.get("email"));
                 debugLog("Whitelist check for " + username + ": found, status=" + user.get("status"));
             } else {
                 resp.put("success", true);
@@ -562,38 +603,38 @@ public class WebServer {
                 resp.put("status", "not_registered");
                 debugLog("Whitelist check for " + username + ": not found");
             }
-            
+
             sendJson(exchange, resp);
         });
-        
+
         // /api/discord/auth - Generate Discord OAuth2 authorization URL
         server.createContext("/api/discord/auth", exchange -> {
             debugLog("/api/discord/auth called");
-            if (!"POST".equals(exchange.getRequestMethod())) { 
-                exchange.sendResponseHeaders(405, 0); 
-                exchange.close(); 
-                return; 
+            if (!"POST".equals(exchange.getRequestMethod())) {
+                exchange.sendResponseHeaders(405, 0);
+                exchange.close();
+                return;
             }
-            
+
             JSONObject req = new JSONObject(new String(exchange.getRequestBody().readAllBytes(), StandardCharsets.UTF_8));
             String username = req.optString("username", "");
-            
+
             JSONObject resp = new JSONObject();
-            
+
             if (!discordService.isEnabled()) {
                 resp.put("success", false);
                 resp.put("msg", "Discord integration is not enabled");
                 sendJson(exchange, resp);
                 return;
             }
-            
+
             if (username.isEmpty()) {
                 resp.put("success", false);
                 resp.put("msg", "Username is required");
                 sendJson(exchange, resp);
                 return;
             }
-            
+
             String authUrl = discordService.generateAuthUrl(username);
             if (authUrl != null) {
                 resp.put("success", true);
@@ -602,18 +643,18 @@ public class WebServer {
                 resp.put("success", false);
                 resp.put("msg", "Failed to generate auth URL");
             }
-            
+
             sendJson(exchange, resp);
         });
-        
+
         // /api/discord/callback - Handle Discord OAuth2 callback
         server.createContext("/api/discord/callback", exchange -> {
             debugLog("/api/discord/callback called");
-            
+
             String query = exchange.getRequestURI().getQuery();
             String code = null;
             String state = null;
-            
+
             if (query != null) {
                 for (String param : query.split("&")) {
                     String[] keyValue = param.split("=");
@@ -626,11 +667,11 @@ public class WebServer {
                     }
                 }
             }
-            
+
             // Check Accept header to determine response format
             String accept = exchange.getRequestHeaders().getFirst("Accept");
             boolean wantsHtml = accept == null || accept.contains("text/html");
-            
+
             if (code == null || state == null) {
                 if (wantsHtml) {
                     sendDiscordCallbackHtml(exchange, false, "Missing code or state parameter", null);
@@ -642,27 +683,27 @@ public class WebServer {
                 }
                 return;
             }
-            
+
             DiscordService.DiscordCallbackResult result = discordService.handleCallback(code, state);
-            
+
             if (wantsHtml) {
-                String discordUsername = result.user != null ? 
+                String discordUsername = result.user != null ?
                     (result.user.globalName != null ? result.user.globalName : result.user.username) : null;
                 sendDiscordCallbackHtml(exchange, result.success, result.message, discordUsername);
             } else {
                 sendJson(exchange, result.toJson());
             }
         });
-        
+
         // /api/discord/status - Check if user has linked Discord
         server.createContext("/api/discord/status", exchange -> {
             debugLog("/api/discord/status called");
-            if (!"GET".equals(exchange.getRequestMethod())) { 
-                exchange.sendResponseHeaders(405, 0); 
-                exchange.close(); 
-                return; 
+            if (!"GET".equals(exchange.getRequestMethod())) {
+                exchange.sendResponseHeaders(405, 0);
+                exchange.close();
+                return;
             }
-            
+
             String query = exchange.getRequestURI().getQuery();
             String username = null;
             if (query != null && query.contains("username=")) {
@@ -673,37 +714,37 @@ public class WebServer {
                     // Keep original value
                 }
             }
-            
+
             JSONObject resp = new JSONObject();
-            
+
             if (username == null || username.isEmpty()) {
                 resp.put("success", false);
                 resp.put("msg", "Username is required");
                 sendJson(exchange, resp);
                 return;
             }
-            
+
             resp.put("success", true);
             resp.put("linked", discordService.isLinked(username));
-            
+
             if (discordService.isLinked(username)) {
                 DiscordService.DiscordUser user = discordService.getLinkedUser(username);
                 if (user != null) {
                     resp.put("user", user.toJson());
                 }
             }
-            
+
             sendJson(exchange, resp);
         });
-        
+
         // /api/reload-config reload configuration interface - requires authentication
         server.createContext("/api/reload-config", exchange -> {
-            if (!"POST".equals(exchange.getRequestMethod())) { 
-                exchange.sendResponseHeaders(405, 0); 
-                exchange.close(); 
-                return; 
+            if (!"POST".equals(exchange.getRequestMethod())) {
+                exchange.sendResponseHeaders(405, 0);
+                exchange.close();
+                return;
             }
-            
+
             // Verify authentication
             if (!isAuthenticated(exchange)) {
                 JSONObject resp = new JSONObject();
@@ -712,13 +753,13 @@ public class WebServer {
                 sendJson(exchange, resp);
                 return;
             }
-            
+
             JSONObject resp = new JSONObject();
             try {
                 plugin.reloadConfig();
                 // Update static file directory to support theme switching
                 String theme = plugin.getConfig().getString("frontend.theme", "default");
-                
+
                 // Use ResourceManager to check theme
                 team.kitemc.verifymc.ResourceManager resourceManager = new team.kitemc.verifymc.ResourceManager((org.bukkit.plugin.java.JavaPlugin) plugin);
                 if (!resourceManager.themeExists(theme)) {
@@ -727,18 +768,18 @@ public class WebServer {
                     sendJson(exchange, resp);
                     return;
                 }
-                
+
                 String newStaticDir = resourceManager.getThemeStaticDir(theme);
-                
+
                 // Update static file directory
                 debugLog("Switching theme from " + this.staticDir + " to " + newStaticDir);
                 this.staticDir = newStaticDir;
-                
+
                 // Recreate static file handler
                 server.removeContext("/");
                 server.createContext("/", new StaticHandler(staticDir));
                 debugLog("Static handler updated for theme: " + theme);
-                
+
                 resp.put("success", true);
                 resp.put("message", "Configuration reloaded successfully. Theme switched to: " + theme);
             } catch (Exception e) {
@@ -747,16 +788,16 @@ public class WebServer {
             }
             sendJson(exchange, resp);
         });
-        
+
         // /api/captcha - Generate captcha image for verification
         server.createContext("/api/captcha", exchange -> {
             debugLog("/api/captcha called");
-            if (!"GET".equals(exchange.getRequestMethod())) { 
-                exchange.sendResponseHeaders(405, 0); 
-                exchange.close(); 
-                return; 
+            if (!"GET".equals(exchange.getRequestMethod())) {
+                exchange.sendResponseHeaders(405, 0);
+                exchange.close();
+                return;
             }
-            
+
             JSONObject resp = new JSONObject();
             try {
                 CaptchaService.CaptchaResult result = captchaService.generateCaptcha();
@@ -770,22 +811,22 @@ public class WebServer {
             }
             sendJson(exchange, resp);
         });
-        
+
         // /api/questionnaire - Get questionnaire questions
         server.createContext("/api/questionnaire", exchange -> {
             debugLog("/api/questionnaire called");
-            if (!"GET".equals(exchange.getRequestMethod())) { 
-                exchange.sendResponseHeaders(405, 0); 
-                exchange.close(); 
-                return; 
+            if (!"GET".equals(exchange.getRequestMethod())) {
+                exchange.sendResponseHeaders(405, 0);
+                exchange.close();
+                return;
             }
-            
+
             String query = exchange.getRequestURI().getQuery();
             String language = "en";
             if (query != null && query.contains("language=")) {
                 language = query.split("language=")[1].split("&")[0];
             }
-            
+
             JSONObject resp = new JSONObject();
             try {
                 JSONObject questionnaire = questionnaireService.getQuestionnaire(language);
@@ -798,16 +839,16 @@ public class WebServer {
             }
             sendJson(exchange, resp);
         });
-        
+
         // /api/submit-questionnaire - Submit questionnaire answers
         server.createContext("/api/submit-questionnaire", exchange -> {
             debugLog("/api/submit-questionnaire called");
-            if (!"POST".equals(exchange.getRequestMethod())) { 
-                exchange.sendResponseHeaders(405, 0); 
-                exchange.close(); 
-                return; 
+            if (!"POST".equals(exchange.getRequestMethod())) {
+                exchange.sendResponseHeaders(405, 0);
+                exchange.close();
+                return;
             }
-            
+
             JSONObject req = new JSONObject(new String(exchange.getRequestBody().readAllBytes(), StandardCharsets.UTF_8));
             String language = req.optString("language", "en");
             String requestId = UUID.randomUUID().toString();
@@ -836,7 +877,7 @@ public class WebServer {
                 sendJson(exchange, resp);
                 return;
             }
-            
+
             JSONObject resp = new JSONObject();
             try {
                 // Parse answers from request
@@ -847,7 +888,7 @@ public class WebServer {
                     sendJson(exchange, resp);
                     return;
                 }
-                
+
                 JSONObject questionnaire = questionnaireService.getQuestionnaire(language);
                 JSONArray questionDefs = questionnaire.optJSONArray("questions");
                 if (questionDefs == null) {
@@ -934,8 +975,8 @@ public class WebServer {
                 resp.put("token", questionnaireToken);
                 resp.put("submitted_at", submittedAt);
                 resp.put("expires_at", expiresAt);
-                resp.put("msg", result.isPassed() ? 
-                    getMsg("questionnaire.passed", language).replace("{score}", String.valueOf(result.getScore())) : 
+                resp.put("msg", result.isPassed() ?
+                    getMsg("questionnaire.passed", language).replace("{score}", String.valueOf(result.getScore())) :
                     getMsg("questionnaire.failed", language).replace("{score}", String.valueOf(result.getScore())).replace("{pass_score}", String.valueOf(result.getPassScore())));
 
                 JSONObject extra = new JSONObject();
@@ -944,7 +985,7 @@ public class WebServer {
                 extra.put("manualReview", manualReviewRequired);
                 extra.put("questionCount", answers.size());
                 logQuestionnaireCall("submitted", clientIp, requestUuid, requestEmail, requestId, extra);
-                
+
             } catch (Exception e) {
                 debugLog("Failed to submit questionnaire requestId=" + requestId + ": " + e.getMessage());
                 JSONObject extra = new JSONObject();
@@ -955,20 +996,32 @@ public class WebServer {
             }
             sendJson(exchange, resp);
         });
-        
+
 
         // /api/send_code send verification code interface with rate limiting and authentication
         server.createContext("/api/send_code", exchange -> {
             debugLog("/api/send_code called");
-            if (!"POST".equals(exchange.getRequestMethod())) { 
-                exchange.sendResponseHeaders(405, 0); 
-                exchange.close(); 
-                return; 
+            if (!"POST".equals(exchange.getRequestMethod())) {
+                exchange.sendResponseHeaders(405, 0);
+                exchange.close();
+                return;
             }
-            
+
             JSONObject req = new JSONObject(new String(exchange.getRequestBody().readAllBytes(), StandardCharsets.UTF_8));
             String email = req.optString("email", "").trim().toLowerCase();
             String language = req.optString("language", "en");
+
+            // IP-based rate limiting to prevent SMTP abuse
+            String sendCodeIp = getClientIp(exchange);
+            RateLimitDecision ipDecision = checkIpRateLimit(sendCodeIpRateLimitStore, sendCodeIp, SEND_CODE_IP_MAX, SEND_CODE_IP_WINDOW_MS);
+            if (!ipDecision.allowed) {
+                JSONObject resp = new JSONObject();
+                resp.put("success", false);
+                resp.put("msg", getMsg("email.rate_limited", language).replace("{seconds}", String.valueOf(ipDecision.retryAfterMs / 1000)));
+                resp.put("remaining_seconds", ipDecision.retryAfterMs / 1000);
+                sendJson(exchange, resp);
+                return;
+            }
 
             // Basic input validation - Email format check
             if (!isValidEmail(email)) {
@@ -1012,27 +1065,27 @@ public class WebServer {
                     return;
                 }
             }
-            
+
             // Generate verification code and send email
             String code = codeService.generateCode(email);
             debugLog("Generated verification code for email: " + maskEmail(email) + ", codeHash=" + hashToken(code));
-            
+
             // Get email subject from config.yml, fallback to default if not set
             String emailSubject = plugin.getConfig().getString("email_subject", "VerifyMC Verification Code");
             boolean sent = mailService.sendCode(email, emailSubject, code, language);
             JSONObject resp = new JSONObject();
             resp.put("success", sent);
             resp.put("msg", sent ? getMsg("email.sent", language) : getMsg("email.failed", language));
-            
+
             if (sent) {
                 debugLog("Verification code sent successfully to: " + email);
             } else {
                 debugLog("Failed to send verification code to: " + email);
             }
-            
+
             sendJson(exchange, resp);
         });
-        
+
         // /api/register registration interface
         server.createContext("/api/register", exchange -> {
             debugLog("/api/register called");
@@ -1058,7 +1111,7 @@ public class WebServer {
                     sendJson(exchange, resp);
                     return;
                 }
-                
+
                 // Validate password format
                 if (!authmeService.isValidPassword(password)) {
                     JSONObject resp = new JSONObject();
@@ -1070,68 +1123,19 @@ public class WebServer {
                 }
             }
 
-            // Email alias restriction
-            if (isEmailAliasLimitEnabled() && email.contains("+")) {
+            // === Phase 1: Format validation (no DB access) ===
+            if (username == null || username.trim().isEmpty()) {
                 JSONObject resp = new JSONObject();
                 resp.put("success", false);
-                resp.put("msg", getMsg("register.alias_not_allowed", language));
+                resp.put("msg", getMsg("register.invalid_username", language));
                 sendJson(exchange, resp);
                 return;
             }
-
-            // Email domain whitelist
-            if (isEmailDomainWhitelistEnabled()) {
-                String domain = email.contains("@") ? email.substring(email.indexOf('@') + 1) : "";
-                java.util.List<String> allowedDomains = getEmailDomainWhitelist();
-                if (!allowedDomains.contains(domain)) {
-                    JSONObject resp = new JSONObject();
-                    resp.put("success", false);
-                    resp.put("msg", getMsg("register.domain_not_allowed", language));
-                    sendJson(exchange, resp);
-                    return;
-                }
-            }
-            // Username uniqueness check
-            if (userDao.getUserByUsername(username) != null) {
-                debugLog("Username already exists: " + username);
-                JSONObject resp = new JSONObject();
-                resp.put("success", false);
-                resp.put("msg", "Username already exists");
-                sendJson(exchange, resp);
-                return;
-            }
-            // Pre-registration username rule validation and case conflict check
             if (!isValidUsername(username)) {
                 JSONObject resp = new JSONObject();
                 resp.put("success", false);
                 String usernameRegex = getUsernameRegexForUser(username);
                 resp.put("msg", getMsg("username.invalid", language).replace("{regex}", usernameRegex));
-                sendJson(exchange, resp);
-                return;
-            }
-            if (isUsernameCaseConflict(username)) {
-                JSONObject resp = new JSONObject();
-                resp.put("success", false);
-                resp.put("msg", getMsg("username.case_conflict", language));
-                sendJson(exchange, resp);
-                return;
-            }
-            // Email registration count limit
-            int maxAccounts = plugin.getConfig().getInt("max_accounts_per_email", 2);
-            int emailCount = userDao.countUsersByEmail(email);
-            if (emailCount >= maxAccounts) {
-                debugLog("Email registration limit reached: " + email + ", count=" + emailCount);
-                JSONObject resp = new JSONObject();
-                resp.put("success", false);
-                resp.put("msg", getMsg("register.email_limit", language));
-                sendJson(exchange, resp);
-                return;
-            }
-            // Input validation
-            if (!isValidEmail(email)) {
-                JSONObject resp = new JSONObject();
-                resp.put("success", false);
-                resp.put("msg", getMsg("register.invalid_email", language));
                 sendJson(exchange, resp);
                 return;
             }
@@ -1142,10 +1146,57 @@ public class WebServer {
                 sendJson(exchange, resp);
                 return;
             }
-            if (username == null || username.trim().isEmpty()) {
+            if (!isValidEmail(email)) {
                 JSONObject resp = new JSONObject();
                 resp.put("success", false);
-                resp.put("msg", getMsg("register.invalid_username", language));
+                resp.put("msg", getMsg("register.invalid_email", language));
+                sendJson(exchange, resp);
+                return;
+            }
+            // Email alias restriction
+            if (isEmailAliasLimitEnabled() && email.contains("+")) {
+                JSONObject resp = new JSONObject();
+                resp.put("success", false);
+                resp.put("msg", getMsg("register.alias_not_allowed", language));
+                sendJson(exchange, resp);
+                return;
+            }
+            // Email domain whitelist
+            if (isEmailDomainWhitelistEnabled()) {
+                String domain = email.substring(email.indexOf('@') + 1);
+                java.util.List<String> allowedDomains = getEmailDomainWhitelist();
+                if (!allowedDomains.contains(domain)) {
+                    JSONObject resp = new JSONObject();
+                    resp.put("success", false);
+                    resp.put("msg", getMsg("register.domain_not_allowed", language));
+                    sendJson(exchange, resp);
+                    return;
+                }
+            }
+
+            // === Phase 2: Database checks ===
+            if (userDao.getUserByUsername(username) != null) {
+                debugLog("Username already exists: " + username);
+                JSONObject resp = new JSONObject();
+                resp.put("success", false);
+                resp.put("msg", "Username already exists");
+                sendJson(exchange, resp);
+                return;
+            }
+            if (isUsernameCaseConflict(username)) {
+                JSONObject resp = new JSONObject();
+                resp.put("success", false);
+                resp.put("msg", getMsg("username.case_conflict", language));
+                sendJson(exchange, resp);
+                return;
+            }
+            int maxAccounts = plugin.getConfig().getInt("max_accounts_per_email", 2);
+            int emailCount = userDao.countUsersByEmail(email);
+            if (emailCount >= maxAccounts) {
+                debugLog("Email registration limit reached: " + email + ", count=" + emailCount);
+                JSONObject resp = new JSONObject();
+                resp.put("success", false);
+                resp.put("msg", getMsg("register.email_limit", language));
                 sendJson(exchange, resp);
                 return;
             }
@@ -1208,13 +1259,13 @@ public class WebServer {
             }
 
             JSONObject resp = new JSONObject();
-            
+
             // Determine verification method based on auth_methods config
             java.util.List<String> authMethods = plugin.getConfig().getStringList("auth_methods");
             boolean useCaptcha = authMethods.contains("captcha");
             boolean useEmail = authMethods.contains("email");
             boolean verificationPassed = false;
-            
+
             // Captcha verification
             if (useCaptcha) {
                 if (captchaToken.isEmpty() || captchaAnswer.isEmpty()) {
@@ -1233,13 +1284,13 @@ public class WebServer {
                 debugLog("Captcha validation passed");
                 verificationPassed = true;
             }
-            
+
             // Email verification (if email method is enabled or no captcha)
             if (useEmail || !useCaptcha) {
             if (!codeService.checkCode(email, code)) {
                 debugLog("Verification code check failed: email=" + maskEmail(email) + ", codeHash=" + hashToken(code));
                 plugin.getLogger().warning("[VerifyMC] Registration failed: wrong code, email=" + maskEmail(email) + ", codeHash=" + hashToken(code));
-                resp.put("success", false); 
+                resp.put("success", false);
                 resp.put("msg", getMsg("verify.wrong_code", language));
                     sendJson(exchange, resp);
                     return;
@@ -1247,10 +1298,10 @@ public class WebServer {
                 debugLog("Email verification code passed");
                 verificationPassed = true;
             }
-            
+
             if (verificationPassed) {
                 debugLog("Verification passed, checking Discord requirement");
-                
+
                 // Check Discord binding if required
                 if (discordService.isRequired()) {
                     if (!discordService.isLinked(username)) {
@@ -1263,7 +1314,7 @@ public class WebServer {
                     }
                     debugLog("Discord binding verified for: " + username);
                 }
-                
+
                 debugLog("All checks passed, registering user");
                 QuestionnaireSubmissionRecord submissionRecord = questionnaireSubmissionRecord;
                 boolean questionnairePassed = submissionRecord != null && submissionRecord.passed;
@@ -1284,7 +1335,7 @@ public class WebServer {
                 } else {
                     ok = userDao.registerUser(uuid, username, email, status, questionnaireScore, questionnairePassedValue, questionnaireReviewSummary, questionnaireScoredAt);
                 }
-                
+
                 debugLog("registerUser result: " + ok);
                 if (ok && "approved".equals(status)) {
                     // Registration successful and approved, automatically add to whitelist
@@ -1292,9 +1343,9 @@ public class WebServer {
                     org.bukkit.Bukkit.getScheduler().runTask(plugin, () -> {
                         org.bukkit.Bukkit.dispatchCommand(org.bukkit.Bukkit.getConsoleSender(), "whitelist add " + username);
                     });
-                    
+
                     // If Authme integration is enabled and auto registration is enabled, register to Authme
-                    if (authmeService.isAuthmeEnabled() && authmeService.isAutoRegisterEnabled() && 
+                    if (authmeService.isAuthmeEnabled() && authmeService.isAutoRegisterEnabled() &&
                         password != null && !password.trim().isEmpty()) {
                         authmeService.registerToAuthme(username, password);
                     }
@@ -1319,21 +1370,31 @@ public class WebServer {
             }
             sendJson(exchange, resp);
         });
-        
+
         // Admin login
         server.createContext("/api/admin-login", exchange -> {
-            if (!"POST".equals(exchange.getRequestMethod())) { 
-                exchange.sendResponseHeaders(405, 0); 
-                exchange.close(); 
-                return; 
+            if (!"POST".equals(exchange.getRequestMethod())) {
+                exchange.sendResponseHeaders(405, 0);
+                exchange.close();
+                return;
             }
             JSONObject req = new JSONObject(new String(exchange.getRequestBody().readAllBytes(), StandardCharsets.UTF_8));
             String password = req.optString("password");
             String language = req.optString("language", "en");
-            
+
+            String clientIp = getClientIp(exchange);
+            RateLimitDecision loginDecision = checkIpRateLimit(adminLoginRateLimitStore, clientIp, ADMIN_LOGIN_MAX_ATTEMPTS, ADMIN_LOGIN_WINDOW_MS);
+            if (!loginDecision.allowed) {
+                JSONObject resp = new JSONObject();
+                resp.put("success", false);
+                resp.put("message", "Too many login attempts, please try again later");
+                sendJson(exchange, resp);
+                return;
+            }
+
             String adminPassword = plugin.getConfig().getString("admin.password", "");
             JSONObject resp = new JSONObject();
-            
+
             if (password.equals(adminPassword)) {
                 String token = generateSecureToken();
                 resp.put("success", true);
@@ -1343,20 +1404,20 @@ public class WebServer {
                 resp.put("success", false);
                 resp.put("message", getMsg("admin.login_failed", language));
             }
-            
+
             sendJson(exchange, resp);
         });
-        
+
         // Admin token verification
         server.createContext("/api/admin-verify", exchange -> {
-            if (!"POST".equals(exchange.getRequestMethod())) { 
-                exchange.sendResponseHeaders(405, 0); 
-                exchange.close(); 
-                return; 
+            if (!"POST".equals(exchange.getRequestMethod())) {
+                exchange.sendResponseHeaders(405, 0);
+                exchange.close();
+                return;
             }
-            
+
             JSONObject resp = new JSONObject();
-            
+
             if (isAuthenticated(exchange)) {
                 resp.put("success", true);
                 resp.put("message", "Token is valid");
@@ -1364,10 +1425,10 @@ public class WebServer {
                 resp.put("success", false);
                 resp.put("message", "Invalid or expired token");
             }
-            
+
             sendJson(exchange, resp);
         });
-        
+
         // Get pending users list - requires authentication
         server.createContext("/api/pending-list", exchange -> {
             // Verify authentication
@@ -1378,7 +1439,7 @@ public class WebServer {
                 sendJson(exchange, resp);
                 return;
             }
-            
+
             String query = exchange.getRequestURI().getQuery();
             String language = "en";
             if (query != null && query.contains("language=")) {
@@ -1403,15 +1464,15 @@ public class WebServer {
             }
             sendJson(exchange, resp);
         });
-        
+
         // Unified user review interface - requires authentication
         server.createContext("/api/review", exchange -> {
-            if (!"POST".equals(exchange.getRequestMethod())) { 
-                exchange.sendResponseHeaders(405, 0); 
-                exchange.close(); 
-                return; 
+            if (!"POST".equals(exchange.getRequestMethod())) {
+                exchange.sendResponseHeaders(405, 0);
+                exchange.close();
+                return;
             }
-            
+
             // Verify authentication
             if (!isAuthenticated(exchange)) {
                 JSONObject resp = new JSONObject();
@@ -1420,12 +1481,12 @@ public class WebServer {
                 sendJson(exchange, resp);
                 return;
             }
-            
+
             JSONObject req = new JSONObject(new String(exchange.getRequestBody().readAllBytes(), StandardCharsets.UTF_8));
             String uuid = req.optString("uuid");
             String action = req.optString("action");
             String language = req.optString("language", "en");
-            
+
             // Input validation
             if (!isValidUUID(uuid)) {
                 JSONObject resp = new JSONObject();
@@ -1434,7 +1495,7 @@ public class WebServer {
                 sendJson(exchange, resp);
                 return;
             }
-            
+
             if (!"approve".equals(action) && !"reject".equals(action)) {
                 JSONObject resp = new JSONObject();
                 resp.put("success", false);
@@ -1442,9 +1503,9 @@ public class WebServer {
                 sendJson(exchange, resp);
                 return;
             }
-            
+
             String reason = req.optString("reason", "");
-            
+
             JSONObject resp = new JSONObject();
             try {
                 // Get user information
@@ -1455,14 +1516,14 @@ public class WebServer {
                     sendJson(exchange, resp);
                     return;
                 }
-                
+
                 String username = (String) user.get("username");
                 String password = (String) user.get("password");
                 String userEmail = (String) user.get("email");
-                
+
                 String status = "approve".equals(action) ? "approved" : "rejected";
                 boolean success = userDao.updateUserStatus(uuid, status);
-                
+
                 if (success && username != null) {
                     if ("approve".equals(action)) {
                         // Review approved, add to whitelist
@@ -1489,7 +1550,7 @@ public class WebServer {
                         }
                     }
                 }
-                
+
                 // Send review result notification to user (async)
                 if (success && userEmail != null && !userEmail.trim().isEmpty()) {
                     final String finalUsername = username;
@@ -1505,12 +1566,12 @@ public class WebServer {
                         }
                     }).start();
                 }
-                
+
                 resp.put("success", success);
-                resp.put("msg", success ? 
+                resp.put("msg", success ?
                     ("approve".equals(action) ? getMsg("review.approve_success", language) : getMsg("review.reject_success", language)) :
                     getMsg("review.failed", language));
-                
+
                 // WebSocket push
                 if (success) {
                     JSONObject wsMsg = new JSONObject();
@@ -1523,10 +1584,10 @@ public class WebServer {
                 resp.put("success", false);
                 resp.put("message", getMsg("review.failed", language));
             }
-            
+
             sendJson(exchange, resp);
         });
-        
+
         // Get all users - requires authentication
         server.createContext("/api/all-users", exchange -> {
             // Verify authentication
@@ -1559,7 +1620,7 @@ public class WebServer {
             }
             sendJson(exchange, resp);
         });
-        
+
         // Get users with pagination - requires authentication
         server.createContext("/api/users-paginated", exchange -> {
             // Verify authentication
@@ -1576,7 +1637,7 @@ public class WebServer {
             int page = 1;
             int pageSize = 10;
             String searchQuery = "";
-            
+
             // Parse query parameters
             if (query != null) {
                 String[] params = query.split("&");
@@ -1606,14 +1667,14 @@ public class WebServer {
                     }
                 }
             }
-            
+
             debugLog("Paginated users request: page=" + page + ", pageSize=" + pageSize + ", search=" + searchQuery);
-            
+
             JSONObject resp = new JSONObject();
             try {
                 List<Map<String, Object>> users;
                 int totalCount;
-                
+
                 // Get approved users with pagination and optional search
                 if (searchQuery != null && !searchQuery.trim().isEmpty()) {
                     users = userDao.getApprovedUsersWithPaginationAndSearch(page, pageSize, searchQuery);
@@ -1622,7 +1683,7 @@ public class WebServer {
                     users = userDao.getApprovedUsersWithPagination(page, pageSize);
                     totalCount = userDao.getApprovedUserCount();
                 }
-                
+
                 // Ensure required fields exist (no need to filter pending users as they're already excluded)
                 for (Map<String, Object> user : users) {
                     if (!user.containsKey("regTime")) user.put("regTime", null);
@@ -1630,12 +1691,12 @@ public class WebServer {
                     if (!user.containsKey("questionnaire_score")) user.put("questionnaire_score", null);
                     if (!user.containsKey("questionnaire_review_summary")) user.put("questionnaire_review_summary", null);
                 }
-                
+
                 // Calculate pagination info
                 int totalPages = (int) Math.ceil((double) totalCount / pageSize);
                 boolean hasNext = page < totalPages;
                 boolean hasPrev = page > 1;
-                
+
                 resp.put("success", true);
                 resp.put("users", users);
                 resp.put("pagination", new JSONObject()
@@ -1646,9 +1707,9 @@ public class WebServer {
                     .put("hasNext", hasNext)
                     .put("hasPrev", hasPrev)
                 );
-                
+
                 debugLog("Returning " + users.size() + " approved users for page " + page + "/" + totalPages);
-                
+
             } catch (Exception e) {
                 debugLog("Error in paginated users API: " + e.getMessage());
                 resp.put("success", false);
@@ -1656,15 +1717,15 @@ public class WebServer {
             }
             sendJson(exchange, resp);
         });
-        
+
         // Delete user - requires authentication
         server.createContext("/api/delete-user", exchange -> {
-            if (!"POST".equals(exchange.getRequestMethod())) { 
-                exchange.sendResponseHeaders(405, 0); 
-                exchange.close(); 
-                return; 
+            if (!"POST".equals(exchange.getRequestMethod())) {
+                exchange.sendResponseHeaders(405, 0);
+                exchange.close();
+                return;
             }
-            
+
             // Verify authentication
             if (!isAuthenticated(exchange)) {
                 JSONObject resp = new JSONObject();
@@ -1673,11 +1734,11 @@ public class WebServer {
                 sendJson(exchange, resp);
                 return;
             }
-            
+
             JSONObject req = new JSONObject(new String(exchange.getRequestBody().readAllBytes(), StandardCharsets.UTF_8));
             String uuid = req.optString("uuid");
             String language = req.optString("language", "en");
-            
+
             // Input validation
             if (!isValidUUID(uuid)) {
                 JSONObject resp = new JSONObject();
@@ -1686,7 +1747,7 @@ public class WebServer {
                 sendJson(exchange, resp);
                 return;
             }
-            
+
             JSONObject resp = new JSONObject();
             try {
                 // Get user information for whitelist operations
@@ -1697,23 +1758,23 @@ public class WebServer {
                     sendJson(exchange, resp);
                     return;
                 }
-                
+
                 String username = (String) user.get("username");
                 boolean success = userDao.deleteUser(uuid);
-                
+
                 if (success && username != null) {
                     // Remove from whitelist
                     debugLog("Execute: whitelist remove " + username);
                     org.bukkit.Bukkit.getScheduler().runTask(plugin, () -> {
                         org.bukkit.Bukkit.dispatchCommand(org.bukkit.Bukkit.getConsoleSender(), "whitelist remove " + username);
                     });
-                    
+
                     // If Authme integration is enabled and auto unregister is configured, unregister user from Authme
                     if (authmeService.isAuthmeEnabled() && authmeService.isAutoUnregisterEnabled()) {
                         authmeService.unregisterFromAuthme(username);
                     }
                 }
-                
+
                 resp.put("success", success);
                 resp.put("msg", success ? getMsg("admin.delete_success", language) : getMsg("admin.delete_failed", language));
             } catch (Exception e) {
@@ -1721,18 +1782,18 @@ public class WebServer {
                 resp.put("success", false);
                 resp.put("msg", getMsg("admin.delete_failed", language));
             }
-            
+
             sendJson(exchange, resp);
         });
-        
+
         // Ban user - requires authentication
         server.createContext("/api/ban-user", exchange -> {
-            if (!"POST".equals(exchange.getRequestMethod())) { 
-                exchange.sendResponseHeaders(405, 0); 
-                exchange.close(); 
-                return; 
+            if (!"POST".equals(exchange.getRequestMethod())) {
+                exchange.sendResponseHeaders(405, 0);
+                exchange.close();
+                return;
             }
-            
+
             // Verify authentication
             if (!isAuthenticated(exchange)) {
                 JSONObject resp = new JSONObject();
@@ -1741,11 +1802,11 @@ public class WebServer {
                 sendJson(exchange, resp);
                 return;
             }
-            
+
             JSONObject req = new JSONObject(new String(exchange.getRequestBody().readAllBytes(), StandardCharsets.UTF_8));
             String uuid = req.optString("uuid");
             String language = req.optString("language", "en");
-            
+
             // Input validation
             if (!isValidUUID(uuid)) {
                 JSONObject resp = new JSONObject();
@@ -1754,7 +1815,7 @@ public class WebServer {
                 sendJson(exchange, resp);
                 return;
             }
-            
+
             JSONObject resp = new JSONObject();
             try {
                 // Get user information for whitelist operations
@@ -1765,10 +1826,10 @@ public class WebServer {
                     sendJson(exchange, resp);
                     return;
                 }
-                
+
                 String username = (String) user.get("username");
                 boolean success = userDao.updateUserStatus(uuid, "banned");
-                
+
                 if (success && username != null) {
                     // Remove from whitelist
                     debugLog("Execute: whitelist remove " + username);
@@ -1776,7 +1837,7 @@ public class WebServer {
                         org.bukkit.Bukkit.dispatchCommand(org.bukkit.Bukkit.getConsoleSender(), "whitelist remove " + username);
                     });
                 }
-                
+
                 resp.put("success", success);
                 resp.put("msg", success ? getMsg("admin.ban_success", language) : getMsg("admin.ban_failed", language));
             } catch (Exception e) {
@@ -1784,18 +1845,18 @@ public class WebServer {
                 resp.put("success", false);
                 resp.put("msg", getMsg("admin.ban_failed", language));
             }
-            
+
             sendJson(exchange, resp);
         });
-        
+
         // Unban user - requires authentication
         server.createContext("/api/unban-user", exchange -> {
-            if (!"POST".equals(exchange.getRequestMethod())) { 
-                exchange.sendResponseHeaders(405, 0); 
-                exchange.close(); 
-                return; 
+            if (!"POST".equals(exchange.getRequestMethod())) {
+                exchange.sendResponseHeaders(405, 0);
+                exchange.close();
+                return;
             }
-            
+
             // Verify authentication
             if (!isAuthenticated(exchange)) {
                 JSONObject resp = new JSONObject();
@@ -1804,11 +1865,11 @@ public class WebServer {
                 sendJson(exchange, resp);
                 return;
             }
-            
+
             JSONObject req = new JSONObject(new String(exchange.getRequestBody().readAllBytes(), StandardCharsets.UTF_8));
             String uuid = req.optString("uuid");
             String language = req.optString("language", "en");
-            
+
             // Input validation
             if (!isValidUUID(uuid)) {
                 JSONObject resp = new JSONObject();
@@ -1817,7 +1878,7 @@ public class WebServer {
                 sendJson(exchange, resp);
                 return;
             }
-            
+
             JSONObject resp = new JSONObject();
             try {
                 // Get user information for whitelist operations
@@ -1828,10 +1889,10 @@ public class WebServer {
                     sendJson(exchange, resp);
                     return;
                 }
-                
+
                 String username = (String) user.get("username");
                 boolean success = userDao.updateUserStatus(uuid, "approved");
-                
+
                 if (success && username != null) {
                     // Re-add to whitelist
                     debugLog("Execute: whitelist add " + username);
@@ -1839,7 +1900,7 @@ public class WebServer {
                         org.bukkit.Bukkit.dispatchCommand(org.bukkit.Bukkit.getConsoleSender(), "whitelist add " + username);
                     });
                 }
-                
+
                 resp.put("success", success);
                 resp.put("msg", success ? getMsg("admin.unban_success", language) : getMsg("admin.unban_failed", language));
             } catch (Exception e) {
@@ -1847,18 +1908,18 @@ public class WebServer {
                 resp.put("success", false);
                 resp.put("msg", getMsg("admin.unban_failed", language));
             }
-            
+
             sendJson(exchange, resp);
         });
-        
+
         // Change user password
         server.createContext("/api/change-password", exchange -> {
-            if (!"POST".equals(exchange.getRequestMethod())) { 
-                exchange.sendResponseHeaders(405, 0); 
-                exchange.close(); 
-                return; 
+            if (!"POST".equals(exchange.getRequestMethod())) {
+                exchange.sendResponseHeaders(405, 0);
+                exchange.close();
+                return;
             }
-            
+
             // Verify authentication
             if (!isAuthenticated(exchange)) {
                 JSONObject resp = new JSONObject();
@@ -1867,15 +1928,15 @@ public class WebServer {
                 sendJson(exchange, resp);
                 return;
             }
-            
+
             JSONObject req = new JSONObject(new String(exchange.getRequestBody().readAllBytes(), StandardCharsets.UTF_8));
             String uuid = req.optString("uuid");
             String username = req.optString("username");
             String newPassword = req.optString("newPassword");
             String language = req.optString("language", "en");
-            
+
             JSONObject resp = new JSONObject();
-            
+
             // Validate input
             if ((uuid == null || uuid.trim().isEmpty()) && (username == null || username.trim().isEmpty())) {
                 resp.put("success", false);
@@ -1883,14 +1944,14 @@ public class WebServer {
                 sendJson(exchange, resp);
                 return;
             }
-            
+
             if (newPassword == null || newPassword.trim().isEmpty()) {
                 resp.put("success", false);
                 resp.put("msg", getMsg("admin.password_required", language));
                 sendJson(exchange, resp);
                 return;
             }
-            
+
             // Validate password format
             if (!authmeService.isValidPassword(newPassword)) {
                 resp.put("success", false);
@@ -1899,7 +1960,7 @@ public class WebServer {
                 sendJson(exchange, resp);
                 return;
             }
-            
+
             try {
                 // Find user
                 Map<String, Object> user = null;
@@ -1908,26 +1969,26 @@ public class WebServer {
                 } else if (username != null && !username.trim().isEmpty()) {
                     user = userDao.getUserByUsername(username);
                 }
-                
+
                 if (user == null) {
                     resp.put("success", false);
                     resp.put("msg", getMsg("admin.user_not_found", language));
                     sendJson(exchange, resp);
                     return;
                 }
-                
+
                 String targetUsername = (String) user.get("username");
                 String targetUuid = (String) user.get("uuid");
-                
+
                 // Update password
                 boolean success = userDao.updateUserPassword(targetUuid, newPassword);
-                
+
                 if (success) {
                     // If Authme integration is enabled, synchronize Authme password update
                     if (authmeService.isAuthmeEnabled()) {
                         authmeService.changePasswordInAuthme(targetUsername, newPassword);
                     }
-                    
+
                     resp.put("success", true);
                     resp.put("msg", getMsg("admin.password_change_success", language));
                 } else {
@@ -1939,23 +2000,23 @@ public class WebServer {
                 resp.put("success", false);
                 resp.put("msg", getMsg("admin.password_change_failed", language));
             }
-            
+
             sendJson(exchange, resp);
         });
-        
+
         // Get user status
         server.createContext("/api/user-status", exchange -> {
-            if (!"GET".equals(exchange.getRequestMethod())) { 
-                exchange.sendResponseHeaders(405, 0); 
-                exchange.close(); 
-                return; 
+            if (!"GET".equals(exchange.getRequestMethod())) {
+                exchange.sendResponseHeaders(405, 0);
+                exchange.close();
+                return;
             }
             String query = exchange.getRequestURI().getQuery();
             String uuid = null;
             if (query != null && query.contains("uuid=")) {
                 uuid = query.split("uuid=")[1].split("&")[0];
             }
-            
+
             JSONObject resp = new JSONObject();
             if (uuid != null) {
                 // Validate UUID format
@@ -1965,7 +2026,7 @@ public class WebServer {
                     sendJson(exchange, resp);
                     return;
                 }
-                
+
                 try {
                     Map<String, Object> user = userDao.getUserByUuid(uuid);
                     if (user != null) {
@@ -1988,7 +2049,7 @@ public class WebServer {
             }
             sendJson(exchange, resp);
         });
-        
+
         // Version check API - requires authentication
         server.createContext("/api/version-check", exchange -> {
             // Verify authentication
@@ -1999,18 +2060,18 @@ public class WebServer {
                 sendJson(exchange, resp);
                 return;
             }
-            
-            if (!"GET".equals(exchange.getRequestMethod())) { 
-                exchange.sendResponseHeaders(405, 0); 
-                exchange.close(); 
-                return; 
+
+            if (!"GET".equals(exchange.getRequestMethod())) {
+                exchange.sendResponseHeaders(405, 0);
+                exchange.close();
+                return;
             }
-            
+
             try {
                 // Get version check service from main plugin
                 team.kitemc.verifymc.VerifyMC mainPlugin = (team.kitemc.verifymc.VerifyMC) plugin;
                 team.kitemc.verifymc.service.VersionCheckService versionService = mainPlugin.getVersionCheckService();
-                
+
                 if (versionService != null) {
                     // Perform async version check
                     versionService.checkForUpdatesAsync().thenAccept(result -> {
@@ -2044,9 +2105,13 @@ public class WebServer {
                 sendJson(exchange, resp);
             }
         });
-        
+
         server.setExecutor(null);
         server.start();
+    }
+
+    public ConcurrentHashMap<String, Long> getValidTokens() {
+        return validTokens;
     }
 
     public void stop() {
@@ -2112,18 +2177,18 @@ public class WebServer {
                         mime = "application/octet-stream";
                     }
                 }
-                
+
                 // Add charset=utf-8 for text-based content types
                 String contentType = mime;
-                if (mime.startsWith("text/") || 
-                    mime.equals("application/javascript") || 
+                if (mime.startsWith("text/") ||
+                    mime.equals("application/javascript") ||
                     mime.equals("application/json") ||
                     mime.equals("application/xml") ||
                     mime.equals("text/xml") ||
                     mime.equals("image/svg+xml")) {
                     contentType = mime + "; charset=utf-8";
                 }
-                
+
                 exchange.getResponseHeaders().add("Content-Type", contentType);
                 byte[] data = Files.readAllBytes(file);
                 exchange.sendResponseHeaders(200, data.length);
@@ -2154,7 +2219,7 @@ public class WebServer {
         exchange.getResponseBody().write(data);
         exchange.close();
     }
-    
+
     /**
      * Send Discord OAuth callback result as an HTML page
      */
@@ -2163,7 +2228,7 @@ public class WebServer {
         String statusIcon = success ? "✓" : "✗";
         String statusColor = success ? "#4ade80" : "#f87171";
         String statusText = success ? "Success" : "Failed";
-        
+
         StringBuilder html = new StringBuilder();
         html.append("<!DOCTYPE html><html lang=\"en\"><head>");
         html.append("<meta charset=\"UTF-8\">");
@@ -2192,7 +2257,7 @@ public class WebServer {
         html.append("<div class=\"icon\">").append(statusIcon).append("</div>");
         html.append("<div class=\"title\">").append(statusText).append("</div>");
         html.append("<div class=\"message\">").append(escapeHtml(message)).append("</div>");
-        
+
         if (success && discordUsername != null) {
             html.append("<div class=\"discord-user\">");
             html.append("<svg class=\"discord-icon\" viewBox=\"0 0 24 24\" fill=\"#5865F2\">");
@@ -2201,17 +2266,17 @@ public class WebServer {
             html.append("<span>").append(escapeHtml(discordUsername)).append("</span>");
             html.append("</div>");
         }
-        
+
         html.append("<a href=\"/\" class=\"btn\">Return to Registration</a>");
         html.append("</div></body></html>");
-        
+
         byte[] data = html.toString().getBytes(StandardCharsets.UTF_8);
         exchange.getResponseHeaders().add("Content-Type", "text/html; charset=utf-8");
         exchange.sendResponseHeaders(200, data.length);
         exchange.getResponseBody().write(data);
         exchange.close();
     }
-    
+
     /**
      * Escape HTML special characters
      */
@@ -2223,7 +2288,7 @@ public class WebServer {
                    .replace("\"", "&quot;")
                    .replace("'", "&#39;");
     }
-    
+
     private String getMsg(String key, String language) {
         // Get or load language resource bundle
         ResourceBundle bundle = getLanguageBundle(language);
@@ -2232,7 +2297,7 @@ public class WebServer {
         }
         return key;
     }
-    
+
     /**
      * Get language resource bundle, load and cache if not exists
      * @param language Language code
@@ -2243,12 +2308,12 @@ public class WebServer {
         if (languageCache.containsKey(language)) {
             return languageCache.get(language);
         }
-        
+
         // Load language file
         try {
             File i18nDir = new File(plugin.getDataFolder(), "i18n");
             File propFile = new File(i18nDir, "messages_" + language + ".properties");
-            
+
             if (propFile.exists()) {
                 try (InputStreamReader reader = new InputStreamReader(new FileInputStream(propFile), java.nio.charset.StandardCharsets.UTF_8)) {
                     ResourceBundle bundle = new java.util.PropertyResourceBundle(reader);
@@ -2274,4 +2339,4 @@ public class WebServer {
             return messages; // Fallback to default
         }
     }
-} 
+}
