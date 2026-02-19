@@ -463,6 +463,7 @@ const loadQuestionnaireConfig = async () => {
 }
 
 const loadPendingUsers = async () => {
+  actionLoading.value = true
   try {
     console.log('Loading pending users...')
     const response = await apiService.getPendingList(locale.value)
@@ -482,6 +483,8 @@ const loadPendingUsers = async () => {
   } catch (error) {
     console.error('Exception loading pending users:', error)
     notification.error(t('admin.review.messages.error'))
+  } finally {
+    actionLoading.value = false
   }
 }
 
