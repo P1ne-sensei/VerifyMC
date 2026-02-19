@@ -141,11 +141,15 @@ public class AuthmeService {
                     } else {
                         userDao.registerUser(authName, localEmail, "approved");
                     }
+                    Bukkit.getScheduler().runTask(plugin, () ->
+                            Bukkit.dispatchCommand(Bukkit.getConsoleSender(), "whitelist add " + authName));
                     continue;
                 }
                 String status = (String) local.get("status");
                 if (!"approved".equals(status) && !"banned".equals(status)) {
                     userDao.updateUserStatus(authName, "approved");
+                    Bukkit.getScheduler().runTask(plugin, () ->
+                            Bukkit.dispatchCommand(Bukkit.getConsoleSender(), "whitelist add " + authName));
                 }
 
                 if (authPassword != null && !authPassword.trim().isEmpty()) {
