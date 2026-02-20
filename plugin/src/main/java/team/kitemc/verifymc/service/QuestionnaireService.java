@@ -489,12 +489,20 @@ public class QuestionnaireService {
             this.reason = reason;
             this.confidence = confidence;
             this.manualReview = manualReview;
-            this.scoringUnavailable = "manual".equals(provider) && reason != null && reason.contains("unavailable");
+            this.scoringUnavailable = manualReview && isScoringUnavailableReason(reason);
             this.provider = provider;
             this.model = model;
             this.requestId = requestId;
             this.latencyMs = latencyMs;
             this.retryCount = retryCount;
+        }
+
+        private static boolean isScoringUnavailableReason(String reason) {
+            if (reason == null) return false;
+            String lower = reason.toLowerCase();
+            return lower.contains("unavailable") || lower.contains("incomplete") ||
+                   lower.contains("saturated") || lower.contains("circuit breaker") ||
+                   lower.contains("interrupted");
         }
 
         public int getQuestionId() { return questionId; }
