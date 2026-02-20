@@ -473,6 +473,7 @@ public class QuestionnaireService {
         private final String reason;
         private final double confidence;
         private final boolean manualReview;
+        private final boolean scoringUnavailable;
         private final String provider;
         private final String model;
         private final String requestId;
@@ -488,6 +489,7 @@ public class QuestionnaireService {
             this.reason = reason;
             this.confidence = confidence;
             this.manualReview = manualReview;
+            this.scoringUnavailable = "manual".equals(provider) && reason != null && reason.contains("unavailable");
             this.provider = provider;
             this.model = model;
             this.requestId = requestId;
@@ -497,6 +499,7 @@ public class QuestionnaireService {
 
         public int getQuestionId() { return questionId; }
         public int getScore() { return score; }
+        public boolean isScoringUnavailable() { return scoringUnavailable; }
         public JSONObject toJson() {
             JSONObject json = new JSONObject();
             json.put("question_id", questionId);
@@ -506,6 +509,7 @@ public class QuestionnaireService {
             json.put("reason", reason);
             json.put("confidence", confidence);
             json.put("manual_review", manualReview);
+            json.put("scoring_unavailable", scoringUnavailable);
             json.put("provider", provider);
             json.put("model", model);
             json.put("request_id", requestId);
@@ -542,12 +546,22 @@ public class QuestionnaireService {
             return false;
         }
 
+        public boolean isScoringServiceUnavailable() {
+            for (QuestionScoreDetail detail : details) {
+                if (detail.isScoringUnavailable()) {
+                    return true;
+                }
+            }
+            return false;
+        }
+
         public JSONObject toJson() {
             JSONObject json = new JSONObject();
             json.put("passed", passed);
             json.put("score", score);
             json.put("pass_score", passScore);
             json.put("manual_review_required", isManualReviewRequired());
+            json.put("scoring_service_unavailable", isScoringServiceUnavailable());
 
             JSONArray detailArray = new JSONArray();
             for (QuestionScoreDetail detail : details) {

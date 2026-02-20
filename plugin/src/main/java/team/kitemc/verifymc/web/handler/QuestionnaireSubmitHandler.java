@@ -49,7 +49,7 @@ public class QuestionnaireSubmitHandler implements HttpHandler {
         int passScore = result.getPassScore();
         boolean passed = result.isPassed();
         boolean manualReviewRequired = result.isManualReviewRequired();
-        boolean scoringServiceUnavailable = false;
+        boolean scoringServiceUnavailable = result.isScoringServiceUnavailable();
         JSONArray details = new JSONArray();
         for (QuestionnaireService.QuestionScoreDetail detail : result.getDetails()) {
             details.put(detail.toJson());
