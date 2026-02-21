@@ -78,7 +78,7 @@
 
 1. Set `auth_methods: [captcha]` in `config.yml` (fastest setup, no SMTP required).
 2. Set `whitelist_mode: plugin` and `web_register_url: https://your-domain.com/`.
-3. Configure `admin.password` to a strong password.
+3. Register an account via the web page, then grant yourself OP (`op <username>`) to access the admin panel.
 4. (Optional) Enable `register.auto_approve: true` for small private servers.
 5. Restart the server and open `http://your_server_ip:8080`.
 

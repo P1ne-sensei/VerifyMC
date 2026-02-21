@@ -36,9 +36,6 @@ public class CaptchaHandler implements HttpHandler {
             resp.put("success", true);
             resp.put("token", result.token());
             resp.put("image", result.imageBase64());
-            if (ctx.getConfigManager().isDebug()) {
-                resp.put("answer", result.answer());
-            }
             WebResponseHelper.sendJson(exchange, resp);
         } catch (Exception e) {
             JSONObject resp = new JSONObject();

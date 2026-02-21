@@ -513,16 +513,16 @@ public class DiscordService {
      * Read HTTP response
      */
     private String readResponse(HttpURLConnection conn) throws Exception {
-        BufferedReader reader = new BufferedReader(
-            new InputStreamReader(conn.getInputStream(), StandardCharsets.UTF_8)
-        );
-        StringBuilder response = new StringBuilder();
-        String line;
-        while ((line = reader.readLine()) != null) {
-            response.append(line);
+        try (BufferedReader reader = new BufferedReader(
+                new InputStreamReader(conn.getInputStream(), StandardCharsets.UTF_8)
+        )) {
+            StringBuilder response = new StringBuilder();
+            String line;
+            while ((line = reader.readLine()) != null) {
+                response.append(line);
+            }
+            return response.toString();
         }
-        reader.close();
-        return response.toString();
     }
     
     /**

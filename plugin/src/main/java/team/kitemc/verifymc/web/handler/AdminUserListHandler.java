@@ -9,6 +9,8 @@ import team.kitemc.verifymc.web.ApiResponseFactory;
 import team.kitemc.verifymc.web.WebResponseHelper;
 
 import java.io.IOException;
+import java.net.URLDecoder;
+import java.nio.charset.StandardCharsets;
 import java.util.List;
 import java.util.Map;
 
@@ -41,8 +43,8 @@ public class AdminUserListHandler implements HttpHandler {
                 switch (kv[0]) {
                     case "page" -> { try { page = Integer.parseInt(kv[1]); } catch (NumberFormatException ignored) {} }
                     case "size" -> { try { size = Integer.parseInt(kv[1]); } catch (NumberFormatException ignored) {} }
-                    case "search" -> search = kv[1];
-                    case "status" -> status = kv[1];
+                    case "search" -> search = URLDecoder.decode(kv[1], StandardCharsets.UTF_8);
+                    case "status" -> status = URLDecoder.decode(kv[1], StandardCharsets.UTF_8);
                 }
             }
         }

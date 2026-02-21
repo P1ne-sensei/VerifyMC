@@ -105,4 +105,12 @@ public interface UserDao {
     default boolean updatePassword(String username, String password) {
         return updateUserPassword(username, password);
     }
+
+    /**
+     * Closes any resources held by this DAO (e.g., database connections).
+     * Default implementation does nothing.
+     */
+    default void close() {
+        // Default: no-op
+    }
 } 

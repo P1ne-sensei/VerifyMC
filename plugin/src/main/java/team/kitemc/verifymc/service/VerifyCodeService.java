@@ -1,7 +1,7 @@
 package team.kitemc.verifymc.service;
 
+import java.security.SecureRandom;
 import java.util.Map;
-import java.util.Random;
 import java.util.concurrent.ConcurrentHashMap;
 
 public class VerifyCodeService {
@@ -11,6 +11,8 @@ public class VerifyCodeService {
     private final long rateLimitMillis = 60 * 1000; // 60秒频率限制
     private final boolean debug;
     private final org.bukkit.plugin.Plugin plugin;
+    private final SecureRandom secureRandom = new SecureRandom();
+    private volatile boolean running = true;
 
     public VerifyCodeService(org.bukkit.plugin.Plugin plugin) {
         this.plugin = plugin;
@@ -32,7 +34,7 @@ public class VerifyCodeService {
      */
     private void startCleanupTask() {
         Thread cleanupThread = new Thread(() -> {
-            while (true) {
+            while (running) {
                 try {
                     Thread.sleep(300000); // Clean up every 5 minutes
                     cleanupExpiredEntries();
@@ -43,8 +45,17 @@ public class VerifyCodeService {
             }
         });
         cleanupThread.setDaemon(true);
+        cleanupThread.setName("VerifyCodeService-Cleanup");
         cleanupThread.start();
         debugLog("Cleanup task started");
+    }
+    
+    /**
+     * Stop the cleanup task gracefully
+     */
+    public void stop() {
+        running = false;
+        debugLog("Cleanup task stopped");
     }
     
     /**
@@ -125,7 +136,7 @@ public class VerifyCodeService {
 
     public String generateCode(String key) {
         debugLog("generateCode called for key: " + key);
-        String code = String.format("%06d", new Random().nextInt(1000000));
+        String code = String.format("%06d", secureRandom.nextInt(1000000));
         long expireTime = System.currentTimeMillis() + expireMillis;
         long currentTime = System.currentTimeMillis();
         

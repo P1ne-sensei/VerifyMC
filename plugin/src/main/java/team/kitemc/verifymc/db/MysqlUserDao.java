@@ -5,7 +5,7 @@ import java.util.*;
 import org.bukkit.plugin.Plugin;
 import team.kitemc.verifymc.util.PasswordUtil;
 
-public class MysqlUserDao implements UserDao {
+public class MysqlUserDao implements UserDao, AutoCloseable {
     private final Connection conn;
     private final ResourceBundle messages;
     private final boolean debug;
@@ -15,9 +15,14 @@ public class MysqlUserDao implements UserDao {
         this.messages = messages;
         this.plugin = plugin;
         this.debug = plugin.getConfig().getBoolean("debug", false);
+        String useSSL = mysqlConfig.getProperty("useSSL", "true");
+        String allowPublicKeyRetrieval = mysqlConfig.getProperty("allowPublicKeyRetrieval", "false");
         String url = "jdbc:mysql://" + mysqlConfig.getProperty("host") + ":" +
                 mysqlConfig.getProperty("port") + "/" +
-                mysqlConfig.getProperty("database") + "?useSSL=false&characterEncoding=utf8";
+                mysqlConfig.getProperty("database") +
+                "?useSSL=" + useSSL +
+                "&allowPublicKeyRetrieval=" + allowPublicKeyRetrieval +
+                "&characterEncoding=utf8";
         conn = DriverManager.getConnection(url, mysqlConfig.getProperty("user"), mysqlConfig.getProperty("password"));
         initDatabase();
     }
@@ -26,9 +31,14 @@ public class MysqlUserDao implements UserDao {
         this.messages = null;
         this.plugin = null;
         this.debug = false;
+        String useSSL = mysqlConfig.getProperty("useSSL", "true");
+        String allowPublicKeyRetrieval = mysqlConfig.getProperty("allowPublicKeyRetrieval", "false");
         String url = "jdbc:mysql://" + mysqlConfig.getProperty("host") + ":" +
                 mysqlConfig.getProperty("port") + "/" +
-                mysqlConfig.getProperty("database") + "?useSSL=false&characterEncoding=utf8";
+                mysqlConfig.getProperty("database") +
+                "?useSSL=" + useSSL +
+                "&allowPublicKeyRetrieval=" + allowPublicKeyRetrieval +
+                "&characterEncoding=utf8";
         conn = DriverManager.getConnection(url, mysqlConfig.getProperty("user"), mysqlConfig.getProperty("password"));
         initDatabase();
     }
@@ -642,5 +652,17 @@ public class MysqlUserDao implements UserDao {
     public boolean isDiscordIdLinked(String discordId) {
         debugLog("Checking if Discord ID is linked: " + discordId);
         return getUserByDiscordId(discordId) != null;
+    }
+
+    @Override
+    public void close() {
+        if (conn != null) {
+            try {
+                conn.close();
+                debugLog("Database connection closed");
+            } catch (SQLException e) {
+                debugLog("Error closing database connection: " + e.getMessage());
+            }
+        }
     }
 }

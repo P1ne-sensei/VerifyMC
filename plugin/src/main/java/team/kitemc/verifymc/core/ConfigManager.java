@@ -194,6 +194,23 @@ public class ConfigManager {
         props.setProperty("database", getConfig().getString("mysql.database", "verifymc"));
         props.setProperty("user", getConfig().getString("mysql.user", "root"));
         props.setProperty("password", getConfig().getString("mysql.password", ""));
+        props.setProperty("useSSL", String.valueOf(getMysqlUseSSL()));
+        props.setProperty("allowPublicKeyRetrieval", String.valueOf(getMysqlAllowPublicKeyRetrieval()));
         return props;
+    }
+
+    /**
+     * Get MySQL SSL setting. Default is true for security.
+     */
+    public boolean getMysqlUseSSL() {
+        return getConfig().getBoolean("mysql.useSSL", true);
+    }
+
+    /**
+     * Get MySQL allowPublicKeyRetrieval setting. Default is false for security.
+     * Enable this if you need to connect to MySQL 8.0+ with default authentication.
+     */
+    public boolean getMysqlAllowPublicKeyRetrieval() {
+        return getConfig().getBoolean("mysql.allowPublicKeyRetrieval", false);
     }
 }

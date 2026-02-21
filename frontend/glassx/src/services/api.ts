@@ -473,7 +473,6 @@ class ApiService {
       body: JSON.stringify({ language }),
     })
   }
-
   // 获取审计日志
   async getAuditLogs(): Promise<AuditListResponse> {
     return this.request<AuditListResponse>('/admin/audits')

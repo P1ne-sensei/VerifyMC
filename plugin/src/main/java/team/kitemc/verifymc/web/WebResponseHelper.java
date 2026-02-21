@@ -1,10 +1,12 @@
 package team.kitemc.verifymc.web;
 
 import com.sun.net.httpserver.HttpExchange;
+import org.json.JSONException;
 import org.json.JSONObject;
 
 import java.io.*;
 import java.nio.charset.StandardCharsets;
+import java.util.logging.Logger;
 
 /**
  * Utility class for HTTP response handling.
@@ -12,6 +14,7 @@ import java.nio.charset.StandardCharsets;
  * (Preserved from original for backward compatibility.)
  */
 public final class WebResponseHelper {
+    private static final Logger LOGGER = Logger.getLogger(WebResponseHelper.class.getName());
     private WebResponseHelper() {}
 
     /**
@@ -29,7 +32,12 @@ public final class WebResponseHelper {
             if (body.isEmpty()) {
                 return new JSONObject();
             }
-            return new JSONObject(body);
+            try {
+                return new JSONObject(body);
+            } catch (JSONException e) {
+                LOGGER.warning("[VerifyMC] Failed to parse JSON body: " + e.getMessage() + ", body: " + body.substring(0, Math.min(body.length(), 100)));
+                return new JSONObject();
+            }
         }
     }
 

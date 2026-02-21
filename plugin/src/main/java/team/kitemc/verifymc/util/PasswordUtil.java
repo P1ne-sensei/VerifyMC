@@ -4,8 +4,10 @@ import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.security.SecureRandom;
+import java.util.logging.Logger;
 
 public final class PasswordUtil {
+    private static final Logger LOGGER = Logger.getLogger(PasswordUtil.class.getName());
     private static final int SALT_LENGTH = 16;
     private static final String HASH_PREFIX = "$SHA$";
     private static final String DELIMITER = "$";
@@ -40,9 +42,14 @@ public final class PasswordUtil {
 
         if (isUnsaltedSha256(storedPassword)) {
             String computedHash = sha256Hex(plainPassword);
-            return computedHash.equalsIgnoreCase(storedPassword);
+            // Use constant-time comparison to prevent timing attacks
+            return MessageDigest.isEqual(
+                    computedHash.toLowerCase().getBytes(StandardCharsets.UTF_8),
+                    storedPassword.toLowerCase().getBytes(StandardCharsets.UTF_8)
+            );
         }
 
+        LOGGER.severe("[VerifyMC] SECURITY WARNING: Plaintext password detected in storage for user. Please trigger a password migration immediately.");
         return plainPassword.equals(storedPassword);
     }
 
@@ -54,7 +61,11 @@ public final class PasswordUtil {
         String salt = parts[1];
         String storedHash = parts[2];
         String computedHash = sha256Hex(sha256Hex(plainPassword) + salt);
-        return computedHash.equals(storedHash);
+        // Use constant-time comparison to prevent timing attacks
+        return MessageDigest.isEqual(
+                computedHash.getBytes(StandardCharsets.UTF_8),
+                storedHash.getBytes(StandardCharsets.UTF_8)
+        );
     }
 
     public static boolean isHashed(String password) {

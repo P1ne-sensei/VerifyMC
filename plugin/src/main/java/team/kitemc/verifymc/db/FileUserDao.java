@@ -596,4 +596,10 @@ public class FileUserDao implements UserDao {
         debugLog("Checking if Discord ID is linked: " + discordId);
         return getUserByDiscordId(discordId) != null;
     }
+
+    @Override
+    public void close() {
+        // File-based storage: no resources to close
+        debugLog("FileUserDao closed (no-op for file storage)");
+    }
 } 
