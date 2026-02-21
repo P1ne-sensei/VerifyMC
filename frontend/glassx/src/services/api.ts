@@ -137,6 +137,7 @@ export interface RegisterResponse {
 }
 
 export interface AdminLoginRequest {
+  username: string
   password: string
   language: string
 }

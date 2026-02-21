@@ -291,6 +291,23 @@ public class FileUserDao implements UserDao {
     }
 
     @Override
+    public Map<String, Object> getUserByEmail(String email) {
+        debugLog("Getting user by email: " + email);
+        if (email == null || email.isEmpty()) {
+            return null;
+        }
+        for (Map<String, Object> user : users.values()) {
+            Object userEmail = user.get("email");
+            if (userEmail != null && userEmail.toString().equalsIgnoreCase(email)) {
+                debugLog("User found by email: " + user.get("username"));
+                return user;
+            }
+        }
+        debugLog("User not found by email");
+        return null;
+    }
+
+    @Override
     public boolean deleteUser(String username) {
         debugLog("deleteUser called: username=" + username);
         try {

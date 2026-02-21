@@ -326,6 +326,28 @@ public class MysqlUserDao implements UserDao {
     }
 
     @Override
+    public Map<String, Object> getUserByEmail(String email) {
+        debugLog("Getting user by email: " + email);
+        if (email == null || email.isEmpty()) {
+            return null;
+        }
+        String sql = "SELECT * FROM users WHERE LOWER(email)=LOWER(?)";
+        try (PreparedStatement ps = conn.prepareStatement(sql)) {
+            ps.setString(1, email);
+            try (ResultSet rs = ps.executeQuery()) {
+                if (rs.next()) {
+                    debugLog("User found by email: " + rs.getString("username"));
+                    return mapUserFromResultSet(rs);
+                }
+            }
+        } catch (SQLException e) {
+            debugLog("Error getting user by email: " + e.getMessage());
+        }
+        debugLog("User not found by email");
+        return null;
+    }
+
+    @Override
     public boolean deleteUser(String username) {
         String sql = "DELETE FROM users WHERE username=?";
         try (PreparedStatement ps = conn.prepareStatement(sql)) {

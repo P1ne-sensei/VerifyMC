@@ -18,6 +18,7 @@ public class PluginContext {
     private final ConfigManager configManager;
     private final I18nManager i18nManager;
     private final ResourceManager resourceManager;
+    private OpsManager opsManager;
 
     // Data access
     private UserDao userDao;
@@ -54,6 +55,7 @@ public class PluginContext {
     public ConfigManager getConfigManager() { return configManager; }
     public I18nManager getI18nManager() { return i18nManager; }
     public ResourceManager getResourceManager() { return resourceManager; }
+    public OpsManager getOpsManager() { return opsManager; }
 
     public UserDao getUserDao() { return userDao; }
     public AuditDao getAuditDao() { return auditDao; }
@@ -85,6 +87,7 @@ public class PluginContext {
     public void setQuestionnaireApplicationService(QuestionnaireApplicationService svc) { this.questionnaireApplicationService = svc; }
     public void setWsServer(ReviewWebSocketServer wsServer) { this.wsServer = wsServer; }
     public void setWebAuthHelper(WebAuthHelper webAuthHelper) { this.webAuthHelper = webAuthHelper; }
+    public void setOpsManager(OpsManager opsManager) { this.opsManager = opsManager; }
 
     public boolean isDebug() {
         return configManager.isDebug();

@@ -3,6 +3,7 @@ package team.kitemc.verifymc;
 import org.bukkit.Bukkit;
 import org.bukkit.plugin.java.JavaPlugin;
 import team.kitemc.verifymc.core.ConfigManager;
+import team.kitemc.verifymc.core.OpsManager;
 import team.kitemc.verifymc.core.PluginContext;
 import team.kitemc.verifymc.db.*;
 import team.kitemc.verifymc.listener.PlayerLoginListener;
@@ -144,7 +145,8 @@ public class VerifyMC extends JavaPlugin {
     private void initServices(Logger log) {
         ConfigManager config = context.getConfigManager();
 
-        // Set up ResourceManager for i18n
+        context.setOpsManager(new OpsManager(this));
+
         context.getResourceManager().setI18nManager(context.getI18nManager());
 
         // Mail service

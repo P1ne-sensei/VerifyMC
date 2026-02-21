@@ -41,8 +41,10 @@ public interface UserDao {
     List<Map<String, Object>> getApprovedUsersWithPaginationAndSearch(int page, int pageSize, String searchQuery);
     
     Map<String, Object> getUserByUsername(String username);
-    
+
     Map<String, Object> getUserByUsernameExact(String username);
+
+    Map<String, Object> getUserByEmail(String email);
     
     boolean deleteUser(String username);
     

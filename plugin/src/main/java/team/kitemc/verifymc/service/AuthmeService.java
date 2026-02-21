@@ -37,6 +37,42 @@ public class AuthmeService {
         return plugin.getConfig().getBoolean("authme.require_password", false);
     }
 
+    public String getAuthmePassword(String username) {
+        if (!isAuthmeEnabled() || username == null || username.isEmpty()) {
+            return null;
+        }
+        String sql = "SELECT " + passwordColumn() + " FROM " + tableName() + " WHERE " + nameColumn() + " = ?";
+        try (Connection conn = getAuthmeConnection();
+             PreparedStatement ps = conn.prepareStatement(sql)) {
+            ps.setString(1, username);
+            try (ResultSet rs = ps.executeQuery()) {
+                if (rs.next()) {
+                    return rs.getString(1);
+                }
+            }
+        } catch (Exception e) {
+            debugLog("Failed to get AuthMe password for " + username + ": " + e.getMessage());
+        }
+        return null;
+    }
+
+    public boolean hasAuthmeUser(String username) {
+        if (!isAuthmeEnabled() || username == null || username.isEmpty()) {
+            return false;
+        }
+        String sql = "SELECT 1 FROM " + tableName() + " WHERE " + nameColumn() + " = ?";
+        try (Connection conn = getAuthmeConnection();
+             PreparedStatement ps = conn.prepareStatement(sql)) {
+            ps.setString(1, username);
+            try (ResultSet rs = ps.executeQuery()) {
+                return rs.next();
+            }
+        } catch (Exception e) {
+            debugLog("Failed to check AuthMe user " + username + ": " + e.getMessage());
+        }
+        return false;
+    }
+
     public boolean isValidPassword(String password) {
         if (password == null || password.trim().isEmpty()) {
             return false;

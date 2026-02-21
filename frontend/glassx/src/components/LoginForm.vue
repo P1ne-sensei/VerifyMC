@@ -9,12 +9,22 @@
         <form @submit.prevent="handleSubmit">
           <div class="flex flex-col gap-6">
             <div class="grid gap-2">
-              <Label for="email">{{ $t('login.form.email') }}</Label>
-              <Input 
-                id="email" 
-                type="password" 
-                :placeholder="$t('login.form.email_placeholder')" 
-                v-model="form.email"
+              <Label for="username">{{ $t('login.form.username') }}</Label>
+              <Input
+                id="username"
+                type="text"
+                :placeholder="$t('login.form.username_placeholder')"
+                v-model="form.username"
+              />
+            </div>
+
+            <div class="grid gap-2">
+              <Label for="password">{{ $t('login.form.password') }}</Label>
+              <Input
+                id="password"
+                type="password"
+                :placeholder="$t('login.form.password_placeholder')"
+                v-model="form.password"
               />
             </div>
 
@@ -57,31 +67,43 @@ const notification = useNotification()
 const loading = ref(false)
 
 const form = reactive({
-  email: ''
+  username: '',
+  password: ''
 })
 
 const errors = reactive({
-  email: ''
+  username: '',
+  password: ''
 })
 
-const validateEmail = () => {
-  errors.email = ''
-  const email = form.email.trim()
-  if (!email) {
-    errors.email = t('login.validation.email_required')
-    return false
+const validateForm = () => {
+  errors.username = ''
+  errors.password = ''
+  
+  const username = form.username.trim()
+  const password = form.password.trim()
+  
+  let isValid = true
+  
+  if (!username) {
+    errors.username = t('login.validation.username_required')
+    isValid = false
   }
   
-  return true
+  if (!password) {
+    errors.password = t('login.validation.password_required')
+    isValid = false
+  }
+  
+  return isValid
 }
 
-
-
 const handleSubmit = async () => {
-  const emailValid = validateEmail()
-  
-  if (!emailValid) {
-    notification.error(errors.email)
+  if (!validateForm()) {
+    const firstError = errors.username || errors.password
+    if (firstError) {
+      notification.error(firstError)
+    }
     return
   }
 
@@ -89,13 +111,14 @@ const handleSubmit = async () => {
 
   try {
     const response = await apiService.adminLogin({
-      password: form.email,
+      username: form.username.trim(),
+      password: form.password,
       language: locale.value
     })
     
     if (response.success) {
       sessionService.setToken(response.token)
-      notification.success(response.message || t('admin.login_success'))
+      notification.success(response.message || t('login.messages.success'))
       const redirect = typeof route.query.redirect === 'string' && route.query.redirect.startsWith('/')
         ? route.query.redirect
         : '/admin'

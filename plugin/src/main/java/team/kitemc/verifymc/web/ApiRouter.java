@@ -67,8 +67,11 @@ public class ApiRouter {
         // --- Review status check ---
         server.createContext("/api/review/status", new ReviewStatusHandler(ctx));
 
+        // --- Login endpoints ---
+        server.createContext("/api/login", new LoginHandler(ctx, false));
+        server.createContext("/api/admin/login", new LoginHandler(ctx, true));
+
         // --- Admin endpoints ---
-        server.createContext("/api/admin/login", new AdminLoginHandler(ctx));
         server.createContext("/api/admin/verify", new AdminVerifyHandler(ctx));
         server.createContext("/api/admin/users", new AdminUserListHandler(ctx));
         server.createContext("/api/admin/user/approve", new AdminUserApproveHandler(ctx));

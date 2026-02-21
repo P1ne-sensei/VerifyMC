@@ -169,11 +169,6 @@ public class ConfigManager {
         return getConfig().getBoolean("register.auto_approve", false);
     }
 
-    // --- Admin ---
-    public String getAdminPassword() {
-        return getConfig().getString("admin.password", "");
-    }
-
     // --- Questionnaire rate limit ---
     public int getQuestionnaireRateLimitIpMax() {
         return getConfig().getInt("questionnaire.rate_limit.ip.max", 20);
