@@ -2,6 +2,7 @@ package team.kitemc.verifymc.web.handler;
 
 import com.sun.net.httpserver.HttpExchange;
 import com.sun.net.httpserver.HttpHandler;
+import org.json.JSONException;
 import org.json.JSONObject;
 import team.kitemc.verifymc.core.PluginContext;
 import team.kitemc.verifymc.db.AuditRecord;
@@ -9,11 +10,13 @@ import team.kitemc.verifymc.web.ApiResponseFactory;
 import team.kitemc.verifymc.web.WebResponseHelper;
 
 import java.io.IOException;
+import java.util.regex.Pattern;
 
 /**
  * Deletes a user from the system and removes them from the whitelist.
  */
 public class AdminUserDeleteHandler implements HttpHandler {
+    private static final Pattern VALID_USERNAME = Pattern.compile("^[a-zA-Z0-9_]{1,16}$");
     private final PluginContext ctx;
 
     public AdminUserDeleteHandler(PluginContext ctx) {
@@ -28,13 +31,27 @@ public class AdminUserDeleteHandler implements HttpHandler {
         String operator = AdminAuthUtil.requireAdmin(exchange, ctx);
         if (operator == null) return;
 
-        JSONObject req = WebResponseHelper.readJson(exchange);
+        JSONObject req;
+        try {
+            req = WebResponseHelper.readJson(exchange);
+        } catch (JSONException e) {
+            WebResponseHelper.sendJson(exchange, ApiResponseFactory.failure(
+                    ctx.getMessage("error.invalid_json", "en")), 400);
+            return;
+        }
         String target = req.optString("username", req.optString("uuid", ""));
         String language = req.optString("language", "en");
 
         if (target.isBlank()) {
             WebResponseHelper.sendJson(exchange, ApiResponseFactory.failure(
                     ctx.getMessage("admin.missing_user_identifier", language)));
+            return;
+        }
+
+        // Validate username format to prevent command injection
+        if (!VALID_USERNAME.matcher(target).matches()) {
+            WebResponseHelper.sendJson(exchange, ApiResponseFactory.failure(
+                    ctx.getMessage("admin.invalid_username", language)));
             return;
         }
 

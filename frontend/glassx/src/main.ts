@@ -20,19 +20,27 @@ const app = createApp({
     const loadConfig = async () => {
       try {
         const response = await fetch('/api/config');
+        if (!response.ok) {
+          throw new Error(`HTTP error! status: ${response.status}`);
+        }
         const data = await response.json();
-        config.value = data;
+        config.value = data.config || data;
       } catch (error) {
         console.error('Failed to load config:', error);
       }
     };
-    
-    const reloadConfig = async () => {
+
+    const reloadConfig = async (): Promise<boolean> => {
       try {
-        await fetch('/api/reload-config', { method: 'POST' });
+        const response = await fetch('/api/reload-config', { method: 'POST' });
+        if (!response.ok) {
+          throw new Error(`HTTP error! status: ${response.status}`);
+        }
         await loadConfig();
+        return true;
       } catch (error) {
         console.error('Failed to reload config:', error);
+        return false;
       }
     };
     

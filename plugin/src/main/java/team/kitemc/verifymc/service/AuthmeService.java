@@ -228,7 +228,9 @@ public class AuthmeService {
         String url = "jdbc:mysql://" + host + ":" + port + "/" + database +
                 "?useSSL=" + useSSL +
                 "&allowPublicKeyRetrieval=" + allowPublicKeyRetrieval +
-                "&characterEncoding=utf8";
+                "&characterEncoding=utf8" +
+                "&connectTimeout=5000" +
+                "&socketTimeout=10000";
         return DriverManager.getConnection(url, user, password);
     }
 

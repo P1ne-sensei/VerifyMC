@@ -62,10 +62,24 @@
 
 <script setup lang="ts">
 import { ref, onMounted, onUnmounted } from 'vue'
-import { useI18n } from 'vue-i18n'
 import { apiService } from '@/services/api'
 
-const { t } = useI18n()
+const isSafeUrl = (url: string): boolean => {
+  try {
+    if (!url.startsWith('http://') && !url.startsWith('https://')) {
+      return false
+    }
+    const parsedUrl = new URL(url)
+    return ['http:', 'https:'].includes(parsedUrl.protocol)
+  } catch {
+    return false
+  }
+}
+
+const getSafeUrl = (url: string | undefined): string => {
+  if (!url) return '#'
+  return isSafeUrl(url) ? url : '#'
+}
 
 interface VersionInfo {
   currentVersion: string
@@ -82,7 +96,7 @@ const versionInfo = ref<VersionInfo>({
   releasesUrl: ''
 })
 
-let checkInterval: NodeJS.Timeout | null = null
+let checkInterval: ReturnType<typeof setInterval> | null = null
 
 /**
  * Check for version updates
@@ -131,8 +145,9 @@ const remindLater = () => {
  * Open download page in new tab
  */
 const openDownloadPage = () => {
-  if (versionInfo.value.releasesUrl) {
-    window.open(versionInfo.value.releasesUrl, '_blank')
+  const safeUrl = getSafeUrl(versionInfo.value.releasesUrl)
+  if (safeUrl !== '#') {
+    window.open(safeUrl, '_blank')
   }
   dismissNotification()
 }

@@ -4,7 +4,10 @@ import org.bukkit.configuration.file.FileConfiguration;
 import org.bukkit.plugin.java.JavaPlugin;
 
 import java.util.Arrays;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Set;
+import java.util.logging.Level;
 
 /**
  * Type-safe configuration access, eliminating scattered getConfig().getString(...)
@@ -19,8 +22,54 @@ public class ConfigManager {
         "protonmail.com", "zoho.com"
     );
 
+    private static final Set<String> VALID_STORAGE_TYPES = new HashSet<>(Arrays.asList("file", "mysql"));
+    private static final int MIN_PORT = 1;
+    private static final int MAX_PORT = 65535;
+
     public ConfigManager(JavaPlugin plugin) {
         this.plugin = plugin;
+        validateConfig();
+    }
+
+    /**
+     * Validates configuration values and logs warnings for invalid settings.
+     */
+    private void validateConfig() {
+        // Validate web port
+        int webPort = getWebPort();
+        if (webPort < MIN_PORT || webPort > MAX_PORT) {
+            plugin.getLogger().log(Level.WARNING, 
+                "Invalid web_port: {0}. Must be between {1} and {2}. Using default 8080.", 
+                new Object[]{webPort, MIN_PORT, MAX_PORT});
+        }
+
+        // Validate WebSocket port
+        int wsPort = getWsPort();
+        if (wsPort < MIN_PORT || wsPort > MAX_PORT) {
+            plugin.getLogger().log(Level.WARNING, 
+                "Invalid ws_port: {0}. Must be between {1} and {2}. Using default 8081.", 
+                new Object[]{wsPort, MIN_PORT, MAX_PORT});
+        }
+
+        // Validate storage type
+        String storageType = getStorageType();
+        if (!VALID_STORAGE_TYPES.contains(storageType.toLowerCase())) {
+            plugin.getLogger().log(Level.WARNING, 
+                "Invalid storage type: {0}. Must be one of: {1}. Using default ''file''.", 
+                new Object[]{storageType, String.join(", ", VALID_STORAGE_TYPES)});
+        }
+
+        // Validate MySQL port if using MySQL storage
+        if ("mysql".equalsIgnoreCase(storageType)) {
+            int mysqlPort = getConfig().getInt("mysql.port", 3306);
+            if (mysqlPort < MIN_PORT || mysqlPort > MAX_PORT) {
+                plugin.getLogger().log(Level.WARNING, 
+                    "Invalid mysql.port: {0}. Must be between {1} and {2}. Using default 3306.", 
+                    new Object[]{mysqlPort, MIN_PORT, MAX_PORT});
+            }
+        }
+
+        plugin.getLogger().log(Level.INFO, "Configuration validated successfully");
     }
 
     public FileConfiguration getConfig() {

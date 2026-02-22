@@ -79,14 +79,18 @@
 </template>
 
 <script setup lang="ts">
-import { inject, computed, watch } from 'vue'
+import { inject, computed, watch, ref, type Ref } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { useRoute } from 'vue-router'
 import { sessionService } from '@/services/session'
 
 const { t } = useI18n()
-const route = useRoute()
-const config = inject('config', { value: {} as any })
+
+interface AppConfig {
+  webServerPrefix?: string
+  announcement?: string
+}
+
+const config = inject<Ref<AppConfig>>('config', ref({}))
 
 interface Props {
   badge?: string
@@ -101,7 +105,7 @@ const props = withDefaults(defineProps<Props>(), {
 })
 
 // 使用配置中的服务器名称
-const serverName = computed(() => config.value?.frontend?.web_server_prefix)
+const serverName = computed(() => config.value?.webServerPrefix)
 
 const displayTitle1 = computed(() => {
   return props.title1 || t('home.welcome')
@@ -111,11 +115,10 @@ const displayTitle2 = computed(() => serverName.value)
 
 // 获取announcement
 const announcement = computed(() => {
-  return config.value?.frontend?.announcement || ''
+  return config.value?.announcement || ''
 })
 
 const isAdminLoggedIn = computed(() => {
-  route.fullPath
   return sessionService.isAuthenticated()
 })
 
@@ -134,9 +137,9 @@ const secondaryAction = computed(() => {
 })
 
 // 监听配置变化
-watch(() => config.value?.frontend?.web_server_prefix, (newPrefix) => {
+watch(() => config.value?.webServerPrefix, (newPrefix) => {
   if (newPrefix) {
-    // Optimized: removed empty block
+    // Config loaded
   }
 }, { immediate: true })
 </script>

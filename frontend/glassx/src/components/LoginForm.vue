@@ -44,7 +44,7 @@
 </template>
 
 <script setup lang="ts">
-import { reactive, ref } from 'vue'
+import { reactive, ref, onUnmounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { useNotification } from '@/composables/useNotification'
@@ -65,6 +65,9 @@ const route = useRoute()
 const notification = useNotification()
 
 const loading = ref(false)
+
+// 使用 ref 保存定时器 ID，确保组件卸载时能正确清理
+const redirectTimeout = ref<ReturnType<typeof setTimeout> | null>(null)
 
 const form = reactive({
   username: '',
@@ -130,7 +133,7 @@ const handleSubmit = async () => {
         ? route.query.redirect
         : '/dashboard'
 
-      setTimeout(() => {
+      redirectTimeout.value = setTimeout(() => {
         router.push(redirect)
       }, 1000)
     } else {
@@ -143,4 +146,12 @@ const handleSubmit = async () => {
     loading.value = false
   }
 }
+
+onUnmounted(() => {
+  // 清理定时器
+  if (redirectTimeout.value) {
+    clearTimeout(redirectTimeout.value)
+    redirectTimeout.value = null
+  }
+})
 </script> 

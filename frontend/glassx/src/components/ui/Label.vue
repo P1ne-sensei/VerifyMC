@@ -1,5 +1,6 @@
 <template>
   <label
+    :for="forId"
     :class="[
       'text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70 text-white',
       className
@@ -12,6 +13,7 @@
 
 <script setup lang="ts">
 interface Props {
+  forId?: string
   className?: string
 }
 

@@ -1,7 +1,11 @@
 const ADMIN_TOKEN_KEY = 'admin_token'
 const IS_ADMIN_KEY = 'is_admin'
 const USER_INFO_KEY = 'user_info'
+const TOKEN_EXPIRY_KEY = 'token_expiry'
 const LOGIN_PATH = '/login'
+
+// Token 默认有效期：7天（毫秒）
+const DEFAULT_TOKEN_LIFETIME_MS = 7 * 24 * 60 * 60 * 1000
 
 const canUseBrowser = (): boolean => typeof window !== 'undefined'
 
@@ -41,9 +45,22 @@ export const sessionService = {
     return localStorage.getItem(ADMIN_TOKEN_KEY)
   },
 
-  setToken(token: string): void {
+  setToken(token: string, expiresInMs?: number): void {
     if (!canUseBrowser()) return
     localStorage.setItem(ADMIN_TOKEN_KEY, token)
+    // 设置过期时间
+    const expiryTime = Date.now() + (expiresInMs ?? DEFAULT_TOKEN_LIFETIME_MS)
+    localStorage.setItem(TOKEN_EXPIRY_KEY, String(expiryTime))
+  },
+
+  // 检查 token 是否过期
+  isTokenExpired(): boolean {
+    if (!canUseBrowser()) return true
+    const expiryStr = localStorage.getItem(TOKEN_EXPIRY_KEY)
+    if (!expiryStr) return true // 没有过期时间记录，视为过期
+    const expiryTime = parseInt(expiryStr, 10)
+    if (isNaN(expiryTime)) return true
+    return Date.now() > expiryTime
   },
 
   clearToken(): void {
@@ -51,10 +68,18 @@ export const sessionService = {
     localStorage.removeItem(ADMIN_TOKEN_KEY)
     localStorage.removeItem(IS_ADMIN_KEY)
     localStorage.removeItem(USER_INFO_KEY)
+    localStorage.removeItem(TOKEN_EXPIRY_KEY)
   },
 
   isAuthenticated(): boolean {
-    return this.getToken() !== null
+    const token = this.getToken()
+    if (token === null) return false
+    // 检查 token 是否过期
+    if (this.isTokenExpired()) {
+      this.clearToken()
+      return false
+    }
+    return true
   },
 
   // Admin status management

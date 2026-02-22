@@ -2,6 +2,7 @@ package team.kitemc.verifymc.web.handler;
 
 import com.sun.net.httpserver.HttpExchange;
 import com.sun.net.httpserver.HttpHandler;
+import org.json.JSONException;
 import org.json.JSONObject;
 import team.kitemc.verifymc.core.PluginContext;
 import team.kitemc.verifymc.db.AuditRecord;
@@ -28,7 +29,14 @@ public class AdminUserPasswordHandler implements HttpHandler {
         String operator = AdminAuthUtil.requireAdmin(exchange, ctx);
         if (operator == null) return;
 
-        JSONObject req = WebResponseHelper.readJson(exchange);
+        JSONObject req;
+        try {
+            req = WebResponseHelper.readJson(exchange);
+        } catch (JSONException e) {
+            WebResponseHelper.sendJson(exchange, ApiResponseFactory.failure(
+                    ctx.getMessage("error.invalid_json", "en")), 400);
+            return;
+        }
         String target = req.optString("username", req.optString("uuid", ""));
         String password = req.optString("password", "");
         String language = req.optString("language", "en");
@@ -41,7 +49,7 @@ public class AdminUserPasswordHandler implements HttpHandler {
 
         boolean ok = ctx.getUserDao().updatePassword(target, password);
 
-        if (ok && ctx.getAuthmeService().isAuthmeEnabled()) {
+        if (ok && ctx.getAuthmeService() != null && ctx.getAuthmeService().isAuthmeEnabled()) {
             ctx.getAuthmeService().changePassword(target, password);
         }
 

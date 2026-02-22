@@ -1,5 +1,6 @@
 <template>
   <input
+    :id="id"
     :type="type"
     :value="modelValue"
     @input="$emit('update:modelValue', ($event.target as HTMLInputElement).value)"
@@ -12,8 +13,11 @@
 </template>
 
 <script setup lang="ts">
+type InputType = 'text' | 'password' | 'email' | 'number' | 'tel' | 'url' | 'search' | 'date' | 'time' | 'datetime-local'
+
 interface Props {
-  type?: string
+  id?: string
+  type?: InputType
   className?: string
   modelValue?: string
 }
@@ -23,6 +27,7 @@ interface Emits {
 }
 
 withDefaults(defineProps<Props>(), {
+  id: undefined,
   type: 'text',
   modelValue: ''
 })

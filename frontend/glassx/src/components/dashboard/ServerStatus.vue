@@ -116,7 +116,6 @@
 
 <script setup lang="ts">
 import { ref, computed, onMounted } from 'vue'
-import { useI18n } from 'vue-i18n'
 import {
   Users,
   Activity,
@@ -127,8 +126,6 @@ import {
   AlertCircle,
 } from 'lucide-vue-next'
 import { apiService } from '@/services/api'
-
-const { t } = useI18n()
 
 const loading = ref(false)
 const apiNotAvailable = ref(false)

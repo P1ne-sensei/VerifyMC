@@ -11,6 +11,7 @@ import team.kitemc.verifymc.web.WebResponseHelper;
 import java.io.IOException;
 import java.net.URLDecoder;
 import java.nio.charset.StandardCharsets;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
@@ -55,7 +56,10 @@ public class AdminUserListHandler implements HttpHandler {
 
         JSONArray usersArray = new JSONArray();
         for (Map<String, Object> user : users) {
-            usersArray.put(new JSONObject(user));
+            // Security: create a copy and remove password field before sending to frontend
+            Map<String, Object> safeUser = new HashMap<>(user);
+            safeUser.remove("password");
+            usersArray.put(new JSONObject(safeUser));
         }
 
         JSONObject pagination = new JSONObject();

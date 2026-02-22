@@ -32,9 +32,9 @@
                 <TableRow v-for="user in pendingUsers" :key="user.username">
                   <TableCell class="font-medium text-white">{{ user.username }}</TableCell>
                   <TableCell>{{ user.email }}</TableCell>
-                  <TableCell>{{ formatDate(user.regTime || user.registerTime) }}</TableCell>
-                  <TableCell v-if="showQuestionnaireScoreColumn">{{ user.questionnaire_score ?? '—' }}</TableCell>
-                  <TableCell v-if="showQuestionnaireReasonColumn" class="max-w-[360px] break-words">{{ user.questionnaire_review_summary || '—' }}</TableCell>
+                  <TableCell>{{ formatDate(user.regTime) }}</TableCell>
+                  <TableCell v-if="showQuestionnaireScoreColumn">{{ user.questionnaireScore ?? '—' }}</TableCell>
+                  <TableCell v-if="showQuestionnaireReasonColumn" class="max-w-[360px] break-words">{{ user.questionnaireReviewSummary || '—' }}</TableCell>
                   <TableCell>
                     <div class="flex space-x-2">
                       <Button
@@ -235,7 +235,7 @@
       <div class="modal-dialog">
         <h3 class="modal-title">{{ $t('admin.users.change_password_modal.title') }}</h3>
         <div class="modal-content">
-          <Label for="newPassword" class="modal-label">{{ $t('admin.users.change_password_modal.new_password') }}</Label>
+          <Label forId="newPassword" class="modal-label">{{ $t('admin.users.change_password_modal.new_password') }}</Label>
           <input
             id="newPassword"
             v-model="newPassword"
@@ -261,12 +261,12 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { RefreshCw, Key, Trash2, Ban, CheckCircle } from 'lucide-vue-next'
 import { useNotification } from '@/composables/useNotification'
 import { useAdminUsers } from '@/composables/useAdminUsers'
-import { apiService } from '@/services/api'
+import { apiService, type PendingUser } from '@/services/api'
 import Tabs from '@/components/ui/Tabs.vue'
 import Table from '@/components/ui/Table.vue'
 import TableHeader from '@/components/ui/TableHeader.vue'
@@ -284,11 +284,15 @@ import VersionUpdateNotification from '@/components/ui/VersionUpdateNotification
 const { t, locale } = useI18n()
 const notification = useNotification()
 
+// Debounce timer for search
+let searchDebounceTimer: ReturnType<typeof setTimeout> | null = null
+
 const activeTab = ref('review')
 const actionLoading = ref(false)
-const pendingUsers = ref<any[]>([])
+const pendingUsers = ref<PendingUser[]>([])
 const questionnaireEnabled = ref(false)
 const questionnaireHasTextQuestions = ref(false)
+let ws: WebSocket | null = null
 
 const showQuestionnaireScoreColumn = computed(() => questionnaireEnabled.value)
 const showQuestionnaireReasonColumn = computed(() => questionnaireEnabled.value && questionnaireHasTextQuestions.value)
@@ -310,6 +314,16 @@ const {
   resetUsersPagination,
 } = useAdminUsers({ locale, t, notification })
 
+// Debounced search - trigger loadAllUsers after 300ms of inactivity
+watch(searchQuery, () => {
+  if (searchDebounceTimer) {
+    clearTimeout(searchDebounceTimer)
+  }
+  searchDebounceTimer = setTimeout(() => {
+    loadAllUsers()
+  }, 300)
+})
+
 const loading = computed(() => usersLoading.value || actionLoading.value)
 
 const tabs = computed(() => [
@@ -321,20 +335,21 @@ const showDeleteDialog = ref(false)
 const showBanDialog = ref(false)
 const showUnbanDialog = ref(false)
 const showPasswordDialog = ref(false)
-const selectedUser = ref<any>(null)
+const selectedUser = ref<PendingUser | null>(null)
 const newPassword = ref('')
 const processingUsers = ref(new Set<string>())
 
 const rejectDialog = ref({
   show: false,
-  user: null as any | null,
+  user: null as PendingUser | null,
   reason: '',
   processing: false
 })
 
-const formatDate = (dateString: string) => {
-  if (!dateString) return '—'
-  return new Date(dateString).toLocaleDateString()
+const formatDate = (dateValue: string | number) => {
+  if (!dateValue) return '—'
+  const date = typeof dateValue === 'number' ? new Date(dateValue) : new Date(dateValue)
+  return date.toLocaleDateString()
 }
 
 const getStatusClass = (status: string) => {
@@ -358,7 +373,7 @@ const loadQuestionnaireConfig = async () => {
   try {
     const config = await apiService.getConfig()
     questionnaireEnabled.value = Boolean(config.questionnaire?.enabled)
-    questionnaireHasTextQuestions.value = Boolean(config.questionnaire?.has_text_questions)
+    questionnaireHasTextQuestions.value = Boolean(config.questionnaire?.hasTextQuestions)
   } catch (error) {
     console.error('Failed to load questionnaire config:', error)
     questionnaireEnabled.value = false
@@ -391,7 +406,7 @@ const notifyResult = (success: boolean, key: string, backendMessage?: string) =>
   }
 }
 
-const openRejectDialog = (user: any) => {
+const openRejectDialog = (user: PendingUser) => {
   rejectDialog.value = {
     show: true,
     user,
@@ -409,7 +424,7 @@ const closeRejectDialog = () => {
   }
 }
 
-const approveUser = async (user: any) => {
+const approveUser = async (user: PendingUser) => {
   processingUsers.value.add(user.username)
   actionLoading.value = true
 
@@ -421,12 +436,12 @@ const approveUser = async (user: any) => {
     })
 
     if (response.success) {
-      notifyResult(true, 'admin.review.messages.approve_success', response.msg)
+      notifyResult(true, 'admin.review.messages.approve_success', response.message)
       await apiService.syncAuthme(locale.value)
       await loadPendingUsers()
       await loadAllUsers()
     } else {
-      notifyResult(false, 'admin.review.messages.error', response.msg)
+      notifyResult(false, 'admin.review.messages.error', response.message)
     }
   } catch (error) {
     notification.error(t('admin.review.messages.error'))
@@ -452,12 +467,12 @@ const confirmReject = async () => {
     })
 
     if (response.success) {
-      notifyResult(true, 'admin.review.messages.reject_success', response.msg)
+      notifyResult(true, 'admin.review.messages.reject_success', response.message)
       await loadPendingUsers()
       await loadAllUsers()
       closeRejectDialog()
     } else {
-      notifyResult(false, 'admin.review.messages.error', response.msg)
+      notifyResult(false, 'admin.review.messages.error', response.message)
     }
   } catch (error) {
     notification.error(t('admin.review.messages.error'))
@@ -470,17 +485,17 @@ const confirmReject = async () => {
   }
 }
 
-const showDeleteConfirm = (user: any) => {
+const showDeleteConfirm = (user: PendingUser) => {
   selectedUser.value = user
   showDeleteDialog.value = true
 }
 
-const showBanConfirm = (user: any) => {
+const showBanConfirm = (user: PendingUser) => {
   selectedUser.value = user
   showBanDialog.value = true
 }
 
-const showUnbanConfirm = (user: any) => {
+const showUnbanConfirm = (user: PendingUser) => {
   selectedUser.value = user
   showUnbanDialog.value = true
 }
@@ -495,10 +510,10 @@ const confirmDelete = async () => {
     const response = await apiService.deleteUser(selectedUser.value.username, locale.value)
 
     if (response.success) {
-      notifyResult(true, 'admin.users.messages.delete_success', response.msg)
+      notifyResult(true, 'admin.users.messages.delete_success', response.message)
       await loadAllUsers()
     } else {
-      notifyResult(false, 'admin.users.messages.error', response.msg)
+      notifyResult(false, 'admin.users.messages.error', response.message)
     }
   } catch (error) {
     notification.error(t('admin.users.messages.error'))
@@ -518,10 +533,10 @@ const confirmBan = async () => {
     const response = await apiService.banUser(selectedUser.value.username, locale.value)
 
     if (response.success) {
-      notifyResult(true, 'admin.users.messages.ban_success', response.msg)
+      notifyResult(true, 'admin.users.messages.ban_success', response.message)
       await loadAllUsers()
     } else {
-      notifyResult(false, 'admin.users.messages.error', response.msg)
+      notifyResult(false, 'admin.users.messages.error', response.message)
     }
   } catch (error) {
     notification.error(t('admin.users.messages.error'))
@@ -541,10 +556,10 @@ const confirmUnban = async () => {
     const response = await apiService.unbanUser(selectedUser.value.username, locale.value)
 
     if (response.success) {
-      notifyResult(true, 'admin.users.messages.unban_success', response.msg)
+      notifyResult(true, 'admin.users.messages.unban_success', response.message)
       await loadAllUsers()
     } else {
-      notifyResult(false, 'admin.users.messages.error', response.msg)
+      notifyResult(false, 'admin.users.messages.error', response.message)
     }
   } catch (error) {
     notification.error(t('admin.users.messages.error'))
@@ -567,12 +582,12 @@ const confirmChangePassword = async () => {
     })
 
     if (response.success) {
-      notifyResult(true, 'admin.users.messages.password_change_success', response.msg)
+      notifyResult(true, 'admin.users.messages.password_change_success', response.message)
       showPasswordDialog.value = false
       newPassword.value = ''
       selectedUser.value = null
     } else {
-      notifyResult(false, 'admin.users.messages.error', response.msg)
+      notifyResult(false, 'admin.users.messages.error', response.message)
     }
   } catch (error) {
     notification.error(t('admin.users.messages.error'))
@@ -604,12 +619,30 @@ onMounted(async () => {
     const wsPort = window.location.port ? (parseInt(window.location.port) + 1) : 8081
     const wsUrl = `${wsProtocol}://${wsHost}:${wsPort}`
     try {
-      const ws = new WebSocket(wsUrl)
+      ws = new WebSocket(wsUrl)
       ws.onmessage = () => {
         loadPendingUsers()
         loadAllUsers()
       }
-    } catch {}
+      ws.onerror = () => {
+        console.warn('WebSocket connection error')
+      }
+      ws.onclose = () => {
+        ws = null
+      }
+    } catch {
+      console.warn('WebSocket connection failed')
+    }
+  }
+})
+
+onUnmounted(() => {
+  if (ws && ws.readyState === WebSocket.OPEN) {
+    ws.close()
+  }
+  // Clear debounce timer
+  if (searchDebounceTimer) {
+    clearTimeout(searchDebounceTimer)
   }
 })
 </script>

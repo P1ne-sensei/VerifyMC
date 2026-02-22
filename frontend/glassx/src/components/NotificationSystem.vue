@@ -35,7 +35,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref } from 'vue'
+import { ref, onUnmounted } from 'vue'
 import { CheckCircle, XCircle, AlertCircle, Info, X } from 'lucide-vue-next'
 
 export interface Notification {
@@ -47,6 +47,9 @@ export interface Notification {
 }
 
 const notifications = ref<Notification[]>([])
+
+// 使用 Map 保存定时器 ID，确保组件卸载时能正确清理
+const timeoutMap = new Map<string, ReturnType<typeof setTimeout>>()
 
 const getNotificationClasses = (type: string) => {
   switch (type) {
@@ -68,17 +71,35 @@ const addNotification = (notification: Omit<Notification, 'id'>) => {
 
   // Auto remove after duration
   const duration = notification.duration || 4000
-  setTimeout(() => {
+  const timeoutId = setTimeout(() => {
     removeNotification(id)
   }, duration)
+  
+  // 保存定时器 ID
+  timeoutMap.set(id, timeoutId)
 }
 
 const removeNotification = (id: string) => {
+  // 清理对应的定时器
+  const timeoutId = timeoutMap.get(id)
+  if (timeoutId) {
+    clearTimeout(timeoutId)
+    timeoutMap.delete(id)
+  }
+  
   const index = notifications.value.findIndex(n => n.id === id)
   if (index > -1) {
     notifications.value.splice(index, 1)
   }
 }
+
+// 组件卸载时清理所有定时器
+onUnmounted(() => {
+  timeoutMap.forEach((timeoutId) => {
+    clearTimeout(timeoutId)
+  })
+  timeoutMap.clear()
+})
 
 // Expose methods for external use
 defineExpose({

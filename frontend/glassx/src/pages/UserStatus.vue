@@ -7,7 +7,7 @@
           <div class="w-10 h-10 bg-white/[0.08] border border-white/10 rounded-xl flex items-center justify-center">
             <Server class="w-6 h-6 text-white" />
           </div>
-          <h1 class="text-2xl font-bold gradient-text" v-if="config.value?.frontend?.web_server_prefix !== undefined">{{ config.value.frontend.web_server_prefix }}</h1>
+          <h1 class="text-2xl font-bold gradient-text" v-if="config?.webServerPrefix !== undefined">{{ config.webServerPrefix }}</h1>
         </div>
 
         <div class="flex items-center space-x-4">
@@ -145,7 +145,7 @@
       <Toast
         v-for="toast in toasts"
         :key="toast.id"
-        :type="toast.type as any"
+        :type="toast.type"
         :title="toast.title"
         :message="toast.message"
         @close="removeToast(toast.id)"
@@ -155,7 +155,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted, inject } from 'vue'
+import { ref, computed, onMounted, inject, type Ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import {
@@ -172,8 +172,13 @@ import {
 import LanguageSwitcher from '@/components/LanguageSwitcher.vue'
 import Toast from '@/components/Toast.vue'
 import { apiService } from '@/services/api'
+import { sessionService, type UserInfo } from '@/services/session'
 
-const config = inject('config', { value: {} as any })
+interface AppConfig {
+  webServerPrefix?: string
+}
+
+const config = inject<Ref<AppConfig>>('config', ref({}))
 
 const router = useRouter()
 const { t } = useI18n()
@@ -181,12 +186,14 @@ const { t } = useI18n()
 const loading = ref(true)
 const refreshing = ref(false)
 const status = ref<{ status: string; reason?: string } | null>(null)
-const user = ref<any | null>(null) // Changed to any as UserType is removed
+const user = ref<UserInfo | null>(null)
 
-const toasts = ref<Array<{ id: number; type: string; title: string; message?: string }>>([])
+type ToastType = 'success' | 'error' | 'warning' | 'info'
+
+const toasts = ref<Array<{ id: number; type: ToastType; title: string; message?: string }>>([])
 let toastId = 0
 
-const addToast = (type: 'success' | 'error' | 'warning' | 'info', title: string, message?: string) => {
+const addToast = (type: ToastType, title: string, message?: string) => {
   const id = ++toastId
   toasts.value.push({ id, type, title, message })
 }
@@ -236,8 +243,7 @@ const loadStatus = async () => {
     } else {
       addToast('error', t('common.error'), response.message && response.message !== t('common.error') ? response.message : '')
     }
-  } catch (error: any) {
-    console.error('Failed to load status:', error)
+  } catch (error: unknown) {
     addToast('error', t('common.error'), t('errors.network'))
   } finally {
     loading.value = false
@@ -251,20 +257,14 @@ const refreshStatus = async () => {
 }
 
 const logout = () => {
-  localStorage.removeItem('token')
-  localStorage.removeItem('user')
+  sessionService.clearToken()
   router.push('/')
 }
 
 onMounted(() => {
-  // Load user info from localStorage
-  const userStr = localStorage.getItem('user')
-  if (userStr) {
-    try {
-      user.value = JSON.parse(userStr)
-    } catch (error) {
-      console.error('Failed to parse user data:', error)
-    }
+  const userInfo = sessionService.getUserInfo()
+  if (userInfo) {
+    user.value = userInfo
   }
 
   loadStatus()

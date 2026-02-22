@@ -98,6 +98,7 @@ public class MysqlUserDao implements UserDao, AutoCloseable {
             }
 
             ensureIndex(stmt, "idx_email", "CREATE INDEX idx_email ON users(email)");
+            ensureIndex(stmt, "idx_discord_id", "CREATE INDEX idx_discord_id ON users(discord_id)");
         }
     }
 
@@ -295,11 +296,11 @@ public class MysqlUserDao implements UserDao, AutoCloseable {
         user.put("status", rs.getString("status"));
         user.put("password", rs.getString("password"));
         user.put("regTime", rs.getLong("regTime"));
-        user.put("discord_id", rs.getString("discord_id"));
-        user.put("questionnaire_score", rs.getObject("questionnaire_score"));
-        user.put("questionnaire_passed", rs.getObject("questionnaire_passed"));
-        user.put("questionnaire_review_summary", rs.getString("questionnaire_review_summary"));
-        user.put("questionnaire_scored_at", rs.getObject("questionnaire_scored_at"));
+        user.put("discordId", rs.getString("discord_id"));
+        user.put("questionnaireScore", rs.getObject("questionnaire_score"));
+        user.put("questionnairePassed", rs.getObject("questionnaire_passed"));
+        user.put("questionnaireReviewSummary", rs.getString("questionnaire_review_summary"));
+        user.put("questionnaireScoredAt", rs.getObject("questionnaire_scored_at"));
         return user;
     }
 

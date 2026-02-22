@@ -103,7 +103,7 @@
             <User v-else class="w-8 h-8" />
           </div>
           <div class="discord-info">
-            <span class="discord-name">{{ discordStatus.user?.global_name || discordStatus.user?.username }}</span>
+            <span class="discord-name">{{ discordStatus.user?.globalName || discordStatus.user?.username }}</span>
             <span class="discord-tag">@{{ discordStatus.user?.username }}</span>
           </div>
         </div>
@@ -124,21 +124,39 @@ import { useI18n } from 'vue-i18n'
 import { User, Clock, CheckCircle, XCircle } from 'lucide-vue-next'
 import { useNotification } from '@/composables/useNotification'
 import { sessionService, type UserInfo } from '@/services/session'
-import { apiService } from '@/services/api'
+import { apiService, type ConfigResponse } from '@/services/api'
 import Label from '@/components/ui/Label.vue'
 import Input from '@/components/ui/Input.vue'
 import Button from '@/components/ui/Button.vue'
 
+// Type definitions
+type UserStatus = 'pending' | 'approved' | 'rejected'
+
+interface DiscordUser {
+  id: string
+  username: string
+  discriminator: string
+  avatar?: string
+  globalName?: string
+}
+
+interface DiscordStatus {
+  success: boolean
+  linked: boolean
+  user?: DiscordUser
+  message?: string
+}
+
 const { t } = useI18n()
 const notification = useNotification()
-const config = inject('config', { value: {} as any })
+const config = inject<{ value: ConfigResponse }>('config', { value: {} as ConfigResponse })
 
 const userInfo = ref<UserInfo | null>(null)
-const userStatus = ref<string>('pending')
+const userStatus = ref<UserStatus>('pending')
 const rejectReason = ref<string>('')
 const saving = ref(false)
 const changingPassword = ref(false)
-const discordStatus = ref<any>(null)
+const discordStatus = ref<DiscordStatus | null>(null)
 
 const form = ref({
   email: '',
@@ -182,7 +200,10 @@ const loadUserStatus = async () => {
   try {
     const response = await apiService.getUserStatus()
     if (response.success && response.data) {
-      userStatus.value = response.data.status
+      const status = response.data.status
+      userStatus.value = (status === 'pending' || status === 'approved' || status === 'rejected')
+        ? status
+        : 'pending'
       rejectReason.value = response.data.reason || ''
     }
   } catch (error) {
@@ -255,8 +276,8 @@ const linkDiscord = async () => {
   if (!userInfo.value?.username) return
   try {
     const response = await apiService.getDiscordAuthUrl(userInfo.value.username)
-    if (response.success && response.auth_url) {
-      window.open(response.auth_url, '_blank')
+    if (response.success && response.authUrl) {
+      window.open(response.authUrl, '_blank')
     }
   } catch (error) {
     notification.error(t('discord.link_failed'))

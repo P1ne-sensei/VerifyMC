@@ -5,6 +5,7 @@ import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 
 public class VerifyCodeService {
+    private static final int MAX_ATTEMPTS = 5; // 最大尝试次数
     private final ConcurrentHashMap<String, CodeEntry> codeMap = new ConcurrentHashMap<>();
     private final ConcurrentHashMap<String, Long> rateLimitMap = new ConcurrentHashMap<>(); // Rate limiting for email sending
     private final long expireMillis = 5 * 60 * 1000; // 5分钟
@@ -161,13 +162,23 @@ public class VerifyCodeService {
             debugLog("No code found for key: " + key);
             return false;
         }
+        
+        // 检查尝试次数
+        if (entry.attempts >= MAX_ATTEMPTS) {
+            debugLog("Too many attempts for key: " + key + ", attempts: " + entry.attempts);
+            codeMap.remove(key);
+            return false;
+        }
+        
         if (entry.expire < System.currentTimeMillis()) {
             debugLog("Code expired for key: " + key + ", expired at: " + entry.expire);
             codeMap.remove(key);
             return false;
         }
+        
+        entry.attempts++; // 增加尝试次数
         boolean ok = entry.code.equals(code);
-        debugLog("Code verification result: " + ok + " (expected: " + entry.code + ", provided: " + code + ")");
+        debugLog("Code verification result: " + ok + " (expected: " + entry.code + ", provided: " + code + ", attempts: " + entry.attempts + ")");
         if (ok) {
             debugLog("Removing used code for key: " + key);
             codeMap.remove(key);
@@ -178,9 +189,11 @@ public class VerifyCodeService {
     static class CodeEntry {
         String code;
         long expire;
+        int attempts; // 尝试次数
         CodeEntry(String code, long expire) {
             this.code = code;
             this.expire = expire;
+            this.attempts = 0;
         }
     }
 } 

@@ -1,6 +1,7 @@
 import { createRouter, createWebHistory } from "vue-router"
 import type { RouteRecordRaw } from "vue-router"
 import { sessionService } from "@/services/session"
+import i18n from "@/i18n"
 
 const routes: RouteRecordRaw[] = [
   {
@@ -30,6 +31,7 @@ const routes: RouteRecordRaw[] = [
   {
     path: "/admin",
     redirect: "/dashboard",
+    meta: { requiresAdmin: true },
   },
   {
     path: "/status",
@@ -65,22 +67,48 @@ const router = createRouter({
   },
 })
 
+// 设置页面标题
+const setPageTitle = (titleKey?: string) => {
+  const baseTitle = "VerifyMC"
+  if (titleKey) {
+    try {
+      const translatedTitle = i18n.global.t(titleKey)
+      document.title = `${translatedTitle} | ${baseTitle}`
+    } catch {
+      document.title = baseTitle
+    }
+  } else {
+    document.title = baseTitle
+  }
+}
+
 // Navigation guards
 router.beforeEach((to, from, next) => {
-  const authenticated = sessionService.isAuthenticated()
+  // 设置页面标题
+  setPageTitle(to.meta.title as string | undefined)
 
+  const authenticated = sessionService.isAuthenticated()
+  const isAdmin = sessionService.isAdmin()
+
+  // 已登录用户访问登录页，重定向到 dashboard
   if (to.path === '/login' && authenticated) {
-    // Redirect authenticated users to dashboard
     const redirect = typeof to.query.redirect === 'string' ? to.query.redirect : '/dashboard'
     next(redirect)
     return
   }
 
+  // 需要认证但未登录
   if (to.meta.requiresAuth && !authenticated) {
     next({
       path: '/login',
       query: { redirect: to.fullPath },
     })
+    return
+  }
+
+  // 需要管理员权限但不是管理员
+  if (to.meta.requiresAdmin && !isAdmin) {
+    next({ path: '/dashboard' })
     return
   }
 

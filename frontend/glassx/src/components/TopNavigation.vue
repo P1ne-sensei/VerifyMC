@@ -69,14 +69,18 @@
 </template>
 
 <script setup lang="ts">
-import { inject, computed, ref } from 'vue'
+import { inject, computed, ref, type Ref } from 'vue'
 import LanguageSwitcher from './LanguageSwitcher.vue'
 import AnimatedMenuBar from './AnimatedMenuBar.vue'
 
-const config = inject('config', { value: {} as any })
+interface AppConfig {
+  webServerPrefix?: string
+}
+
+const config = inject<Ref<AppConfig>>('config', ref({}))
 const mobileMenuOpen = ref(false)
 
-const serverName = computed(() => config.value?.frontend?.web_server_prefix)
+const serverName = computed(() => config.value?.webServerPrefix)
 
 const toggleMobileMenu = () => {
   mobileMenuOpen.value = !mobileMenuOpen.value

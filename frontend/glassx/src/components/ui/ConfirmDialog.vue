@@ -1,17 +1,25 @@
 <template>
   <!-- Fixed positioning modal overlay - ensures proper centering relative to viewport -->
-  <div v-if="show" class="modal-overlay">
+  <div
+    v-if="show"
+    class="modal-overlay"
+    role="dialog"
+    aria-modal="true"
+    :aria-labelledby="titleId"
+    :aria-describedby="messageId"
+  >
     <!-- Background mask -->
     <div class="modal-backdrop" @click="handleCancel"></div>
     
     <!-- Dialog container -->
-    <div class="modal-dialog">
+    <div class="modal-dialog" ref="dialogRef">
       <!-- 标题 -->
       <div class="flex items-center justify-between mb-4">
-        <h3 class="text-lg font-semibold text-white">{{ title }}</h3>
+        <h3 :id="titleId" class="text-lg font-semibold text-white">{{ title }}</h3>
         <button 
           @click="handleCancel"
           class="text-white/60 hover:text-white transition-colors"
+          :aria-label="$t('common.close')"
         >
           <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path>
@@ -21,18 +29,20 @@
       
       <!-- 内容 -->
       <div class="mb-6">
-        <p class="text-white/80">{{ message }}</p>
+        <p :id="messageId" class="text-white/80">{{ message }}</p>
       </div>
       
       <!-- 操作按钮 -->
       <div class="flex gap-3 justify-end">
         <button 
+          ref="cancelBtnRef"
           @click="handleCancel"
           class="px-4 py-2 text-white/80 hover:text-white border border-white/20 hover:border-white/40 rounded-md transition-colors"
         >
-          {{ cancelText }}
+          {{ cancelText || $t('common.cancel') }}
         </button>
         <button 
+          ref="confirmBtnRef"
           @click="handleConfirm"
           :class="[
             'px-4 py-2 rounded-md transition-colors',
@@ -41,7 +51,7 @@
               : 'bg-blue-500 hover:bg-blue-600 text-white'
           ]"
         >
-          {{ confirmText }}
+          {{ confirmText || $t('common.confirm') }}
         </button>
       </div>
     </div>
@@ -91,7 +101,11 @@
 </style>
 
 <script setup lang="ts">
-import { defineProps, defineEmits } from 'vue'
+import { ref, watch, nextTick, onUnmounted, useId } from 'vue'
+
+// Generate unique IDs for ARIA attributes
+const titleId = useId()
+const messageId = useId()
 
 interface Props {
   show: boolean
@@ -103,8 +117,8 @@ interface Props {
 }
 
 const props = withDefaults(defineProps<Props>(), {
-  confirmText: '确认',
-  cancelText: '取消',
+  confirmText: '',
+  cancelText: '',
   type: 'danger'
 })
 
@@ -113,6 +127,14 @@ const emit = defineEmits<{
   cancel: []
 }>()
 
+// Refs for focus management
+const dialogRef = ref<HTMLElement | null>(null)
+const cancelBtnRef = ref<HTMLButtonElement | null>(null)
+const confirmBtnRef = ref<HTMLButtonElement | null>(null)
+
+// Store the previously focused element
+let previouslyFocusedElement: HTMLElement | null = null
+
 const handleConfirm = () => {
   emit('confirm')
 }
@@ -120,4 +142,40 @@ const handleConfirm = () => {
 const handleCancel = () => {
   emit('cancel')
 }
+
+// Handle Escape key press
+const handleKeyDown = (event: KeyboardEvent) => {
+  if (event.key === 'Escape') {
+    handleCancel()
+  }
+}
+
+// Focus management
+watch(() => props.show, async (newShow) => {
+  if (newShow) {
+    // Store the currently focused element
+    previouslyFocusedElement = document.activeElement as HTMLElement
+    
+    // Add keyboard event listener
+    document.addEventListener('keydown', handleKeyDown)
+    
+    // Focus the cancel button when dialog opens
+    await nextTick()
+    cancelBtnRef.value?.focus()
+  } else {
+    // Remove keyboard event listener
+    document.removeEventListener('keydown', handleKeyDown)
+    
+    // Restore focus to the previously focused element
+    if (previouslyFocusedElement) {
+      previouslyFocusedElement.focus()
+      previouslyFocusedElement = null
+    }
+  }
+})
+
+// Cleanup on unmount
+onUnmounted(() => {
+  document.removeEventListener('keydown', handleKeyDown)
+})
 </script> 

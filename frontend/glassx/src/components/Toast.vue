@@ -37,7 +37,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { CheckCircle, XCircle, AlertCircle, Info, X } from 'lucide-vue-next'
 
 interface Props {
@@ -60,6 +60,10 @@ const emit = defineEmits<{
 
 const visible = ref(false)
 
+// 使用 ref 保存定时器 ID，确保组件卸载时能正确清理
+const autoCloseTimeout = ref<ReturnType<typeof setTimeout> | null>(null)
+const closeTimeout = ref<ReturnType<typeof setTimeout> | null>(null)
+
 const toastClasses = computed(() => {
   const baseClasses = 'border-l-4'
   switch (props.type) {
@@ -76,7 +80,7 @@ const toastClasses = computed(() => {
 
 const close = () => {
   visible.value = false
-  setTimeout(() => {
+  closeTimeout.value = setTimeout(() => {
     emit('close')
   }, 300)
 }
@@ -85,9 +89,21 @@ onMounted(() => {
   visible.value = true
   
   if (props.autoClose) {
-    setTimeout(() => {
+    autoCloseTimeout.value = setTimeout(() => {
       close()
     }, props.duration)
+  }
+})
+
+onUnmounted(() => {
+  // 清理所有定时器
+  if (autoCloseTimeout.value) {
+    clearTimeout(autoCloseTimeout.value)
+    autoCloseTimeout.value = null
+  }
+  if (closeTimeout.value) {
+    clearTimeout(closeTimeout.value)
+    closeTimeout.value = null
   }
 })
 </script>

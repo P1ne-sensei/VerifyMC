@@ -10,12 +10,16 @@
 </template>
 
 <script setup lang="ts">
-import { inject, computed } from 'vue'
+import { inject, computed, ref, type Ref } from 'vue'
 import HeroGeometric from '@/components/HeroGeometric.vue'
 
-const config = inject('config', { value: {} as any })
+interface AppConfig {
+  webServerPrefix?: string
+}
 
-const serverName = computed(() => config.value?.config?.web_server_prefix)
+const config = inject<Ref<AppConfig>>('config', ref({}))
+
+const serverName = computed(() => config.value?.webServerPrefix || 'VerifyMC')
 </script>
 
 <style scoped>

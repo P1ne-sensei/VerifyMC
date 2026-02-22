@@ -155,7 +155,7 @@ export const useAdminUsers = ({ locale, t, notification }: UseAdminUsersOptions)
     loadAllUsers()
   }
 
-  watch(searchQuery, () => {
+  const stopWatch = watch(searchQuery, () => {
     if (searchDebounceTimer) {
       clearTimeout(searchDebounceTimer)
     }
@@ -166,8 +166,8 @@ export const useAdminUsers = ({ locale, t, notification }: UseAdminUsersOptions)
     }, 500)
   })
 
-
   onScopeDispose(() => {
+    stopWatch()
     if (searchDebounceTimer) {
       clearTimeout(searchDebounceTimer)
     }

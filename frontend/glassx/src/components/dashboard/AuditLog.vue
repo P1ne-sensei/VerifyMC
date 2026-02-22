@@ -83,7 +83,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { RefreshCw, FileText } from 'lucide-vue-next'
 import { apiService, type AuditRecord } from '@/services/api'
@@ -107,10 +107,23 @@ const pageSize = ref(20)
 const totalCount = ref(0)
 const totalPages = ref(1)
 
+// Debounced filter result
+const debouncedFilter = ref('')
+let filterDebounceTimer: ReturnType<typeof setTimeout> | null = null
+
+watch(actionFilter, (newValue) => {
+  if (filterDebounceTimer) {
+    clearTimeout(filterDebounceTimer)
+  }
+  filterDebounceTimer = setTimeout(() => {
+    debouncedFilter.value = newValue
+  }, 300)
+})
+
 const filteredLogs = computed(() => {
-  if (!actionFilter.value) return auditLogs.value
+  if (!debouncedFilter.value) return auditLogs.value
   return auditLogs.value.filter(log =>
-    log.action.toLowerCase().includes(actionFilter.value.toLowerCase())
+    log.action.toLowerCase().includes(debouncedFilter.value.toLowerCase())
   )
 })
 
@@ -174,6 +187,13 @@ const handlePageChange = (page: number) => {
 
 onMounted(() => {
   loadAuditLogs()
+})
+
+onUnmounted(() => {
+  if (filterDebounceTimer) {
+    clearTimeout(filterDebounceTimer)
+    filterDebounceTimer = null
+  }
 })
 </script>
 

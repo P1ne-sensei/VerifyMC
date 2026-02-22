@@ -31,13 +31,17 @@
 </template>
 
 <script setup lang="ts">
-import { inject, watch, ref, onMounted, computed } from 'vue'
+import { inject, watch, ref, onMounted, computed, type Ref } from 'vue'
 import { useNotification } from '@/composables/useNotification'
 import NotificationSystem from '@/components/NotificationSystem.vue'
 import TopNavigation from '@/components/TopNavigation.vue'
 
-const config = inject('config', { value: {} as any })
-const reloadConfig = inject('reloadConfig', () => { })
+interface AppConfig {
+  webServerPrefix?: string
+}
+
+const config = inject<Ref<AppConfig>>('config', ref({}))
+const reloadConfig = inject<() => Promise<boolean>>('reloadConfig', async () => false)
 const { setNotificationSystem } = useNotification()
 
 const notificationSystemRef = ref()
@@ -52,7 +56,7 @@ onMounted(() => {
 })
 
 // 监听配置变化，动态设置页面标题
-watch(() => config.value?.config?.web_server_prefix, (newPrefix: string | undefined) => {
+watch(() => config.value?.webServerPrefix, (newPrefix: string | undefined) => {
   if (newPrefix) {
     document.title = newPrefix
     console.log('Page title updated:', newPrefix)

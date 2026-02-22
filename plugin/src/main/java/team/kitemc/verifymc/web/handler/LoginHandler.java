@@ -2,6 +2,7 @@ package team.kitemc.verifymc.web.handler;
 
 import com.sun.net.httpserver.HttpExchange;
 import com.sun.net.httpserver.HttpHandler;
+import org.json.JSONException;
 import org.json.JSONObject;
 import team.kitemc.verifymc.core.OpsManager;
 import team.kitemc.verifymc.core.PluginContext;
@@ -32,7 +33,14 @@ public class LoginHandler implements HttpHandler {
     public void handle(HttpExchange exchange) throws IOException {
         if (!WebResponseHelper.requireMethod(exchange, "POST")) return;
 
-        JSONObject req = WebResponseHelper.readJson(exchange);
+        JSONObject req;
+        try {
+            req = WebResponseHelper.readJson(exchange);
+        } catch (JSONException e) {
+            WebResponseHelper.sendJson(exchange, ApiResponseFactory.failure(
+                    ctx.getMessage("error.invalid_json", "en")), 400);
+            return;
+        }
         String username = req.optString("username", "");
         String password = req.optString("password", "");
         String language = req.optString("language", "en");

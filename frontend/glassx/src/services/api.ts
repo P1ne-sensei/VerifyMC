@@ -2,33 +2,27 @@ import { sessionService } from '@/services/session'
 
 const API_BASE = '/api'
 
-export interface ApiResponse<T = any> {
+export interface ApiResponse<T = unknown> {
   success: boolean
   message?: string
   data?: T
 }
 
 export interface ConfigResponse {
-  login: {
-    enable_email: boolean
-    email_smtp: string
-  }
-  admin: any
-  frontend: {
-    theme: string
-    logo_url: string
-    announcement: string
-    web_server_prefix: string
-    username_regex: string
-  }
+  authMethods: string[]
+  theme: string
+  logoUrl: string
+  announcement: string
+  webServerPrefix: string
+  usernameRegex: string
   authme: {
     enabled: boolean
-    require_password: boolean
-    password_regex: string
+    requirePassword: boolean
+    passwordRegex: string
   }
   captcha?: {
     enabled: boolean
-    email_enabled: boolean
+    emailEnabled: boolean
     type: string
   }
   discord?: {
@@ -37,14 +31,18 @@ export interface ConfigResponse {
   }
   questionnaire?: {
     enabled: boolean
-    pass_score: number
-    has_text_questions?: boolean
+    passScore: number
+    hasTextQuestions?: boolean
   }
   bedrock?: {
     enabled: boolean
     prefix: string
-    username_regex: string
+    usernameRegex: string
   }
+  emailDomainWhitelist?: string[]
+  enableEmailDomainWhitelist?: boolean
+  enableEmailAliasLimit?: boolean
+  language?: string
 }
 
 export interface QuestionnaireAnswer {
@@ -59,10 +57,10 @@ export interface QuestionOption {
 }
 
 export interface QuestionInputMeta {
-  min_selections?: number
-  max_selections?: number
-  min_length?: number
-  max_length?: number
+  minSelections?: number
+  maxSelections?: number
+  minLength?: number
+  maxLength?: number
   multiline?: boolean
   placeholder?: string
 }
@@ -82,31 +80,30 @@ export interface SubmitQuestionnaireResponse {
   success: boolean
   passed: boolean
   score: number
-  pass_score: number
-  manual_review_required?: boolean
+  passScore: number
+  manualReviewRequired?: boolean
   token?: string
-  submitted_at?: number
-  expires_at?: number
-  msg?: string
+  submittedAt?: number
+  expiresAt?: number
   message?: string
 }
 
 export interface QuestionnaireSubmission {
   passed: boolean
   score: number
-  pass_score: number
-  manual_review_required?: boolean
+  passScore: number
+  manualReviewRequired?: boolean
   answers: Record<string, QuestionnaireAnswer>
   token: string
-  submitted_at: number
-  expires_at: number
+  submittedAt: number
+  expiresAt: number
 }
 
 export interface CaptchaResponse {
   success: boolean
   token?: string
   image?: string
-  msg?: string
+  message?: string
 }
 
 export interface SendCodeRequest {
@@ -116,7 +113,8 @@ export interface SendCodeRequest {
 
 export interface SendCodeResponse {
   success: boolean
-  msg: string
+  message: string
+  remainingSeconds?: number
 }
 
 export interface RegisterRequest {
@@ -133,7 +131,7 @@ export interface RegisterRequest {
 
 export interface RegisterResponse {
   success: boolean
-  msg: string
+  message: string
 }
 
 export interface AdminLoginRequest {
@@ -154,9 +152,9 @@ export interface PendingUser {
   username: string
   email: string
   status: string
-  regTime: string
-  questionnaire_score?: number | null
-  questionnaire_review_summary?: string | null
+  regTime: number
+  questionnaireScore?: number | null
+  questionnaireReviewSummary?: string | null
 }
 
 export interface PendingListResponse {
@@ -174,7 +172,7 @@ export interface ReviewRequest {
 
 export interface ReviewResponse {
   success: boolean
-  msg: string
+  message: string
 }
 
 export interface ChangePasswordRequest {
@@ -222,35 +220,75 @@ class ApiService {
     }
   }
 
-  private getResponseMessage(payload: { msg?: string; message?: string } | null | undefined): string {
-    return payload?.msg || payload?.message || ''
+  private getResponseMessage(payload: { message?: string } | null | undefined): string {
+    return payload?.message || ''
   }
 
   private async request<T>(endpoint: string, options: RequestInit = {}): Promise<T> {
     const url = `${API_BASE}${endpoint}`
-    const response = await fetch(url, {
-      headers: this.getAuthHeaders(),
-      ...options,
-    })
+    const controller = new AbortController()
+    const timeoutId = setTimeout(() => controller.abort(), 30000)
 
-    if (response.status === 401 || response.status === 403) {
-      sessionService.handleUnauthorized()
-      throw new Error('Authentication required')
-    }
+    try {
+      const response = await fetch(url, {
+        headers: this.getAuthHeaders(),
+        ...options,
+        signal: controller.signal,
+      })
 
-    const data = await response.json()
-    const responseMessage = this.getResponseMessage(data)
-    if (data && data.success === false && responseMessage.includes('Authentication required')) {
-      sessionService.handleUnauthorized()
-      throw new Error('Authentication required')
+      // 处理 401/403 认证错误
+      if (response.status === 401 || response.status === 403) {
+        sessionService.handleUnauthorized()
+        throw new Error('Authentication required')
+      }
+
+      // 检查 HTTP 状态码，非 2xx 响应抛出错误
+      if (!response.ok) {
+        let errorMessage = `HTTP error: ${response.status}`
+        try {
+          const errorData = await response.json()
+          errorMessage = errorData?.message || errorMessage
+        } catch {
+          // 无法解析 JSON，使用默认错误消息
+        }
+        throw new Error(errorMessage)
+      }
+
+      const data = await response.json()
+      const responseMessage = this.getResponseMessage(data)
+      if (data && data.success === false && responseMessage.includes('Authentication required')) {
+        sessionService.handleUnauthorized()
+        throw new Error('Authentication required')
+      }
+      return data
+    } catch (error) {
+      if (error instanceof Error && error.name === 'AbortError') {
+        throw new Error('Request timeout')
+      }
+      throw error
+    } finally {
+      clearTimeout(timeoutId)
     }
-    return data
   }
 
   // 获取配置
   async getConfig(): Promise<ConfigResponse> {
     const response = await this.request<{ success: boolean; config: ConfigResponse }>('/config')
-    return response.config || response as unknown as ConfigResponse
+    // 运行时验证：优先使用 config 字段，否则验证 response 是否符合 ConfigResponse 结构
+    if (response.config) {
+      return response.config
+    }
+    // 检查 response 本身是否符合 ConfigResponse 结构
+    const candidate = response as unknown
+    if (
+      candidate &&
+      typeof candidate === 'object' &&
+      'authMethods' in candidate &&
+      Array.isArray((candidate as Record<string, unknown>).authMethods)
+    ) {
+      return candidate as ConfigResponse
+    }
+    throw new Error('Invalid config response format')
   }
 
   // 获取验证码
@@ -281,7 +319,6 @@ class ApiService {
       enabled: boolean
       questions: Question[]
     }
-    msg?: string
     message?: string
   }> {
     return this.request(`/questionnaire/config?language=${encodeURIComponent(language)}`)
@@ -334,10 +371,12 @@ class ApiService {
   }
 
   // 封禁用户
-  async banUser(username: string, language: string = 'zh'): Promise<ReviewResponse> {
+  async banUser(username: string, language: string = 'zh', reason?: string): Promise<ReviewResponse> {
+    const body: Record<string, string> = { username, language }
+    if (reason) body.reason = reason
     return this.request<ReviewResponse>('/admin/user/ban', {
       method: 'POST',
-      body: JSON.stringify({ username, language }),
+      body: JSON.stringify(body),
     })
   }
 
@@ -346,21 +385,6 @@ class ApiService {
     return this.request<ReviewResponse>('/admin/user/unban', {
       method: 'POST',
       body: JSON.stringify({ username, language }),
-    })
-  }
-
-  // 更新公告
-  async updateAnnouncement(content: string, language: string = 'zh'): Promise<ReviewResponse> {
-    return this.request<ReviewResponse>('/update-announcement', {
-      method: 'POST',
-      body: JSON.stringify({ content, language }),
-    })
-  }
-
-  // 重载配置
-  async reloadConfig(): Promise<{ success: boolean; message: string }> {
-    return this.request<{ success: boolean; message: string }>('/reload-config', {
-      method: 'POST',
     })
   }
 
@@ -442,16 +466,16 @@ class ApiService {
   }
 
   // Discord OAuth - 获取授权 URL
-  async getDiscordAuthUrl(username: string): Promise<{
+  async getDiscordAuthUrl(username: string, language: string = 'en'): Promise<{
     success: boolean;
-    auth_url?: string;
-    msg?: string;
+    authUrl?: string;
+    message?: string;
   }> {
-    return this.request(`/discord/auth?username=${encodeURIComponent(username)}`)
+    return this.request(`/discord/auth?username=${encodeURIComponent(username)}&language=${language}`)
   }
 
   // Discord OAuth - 检查绑定状态
-  async getDiscordStatus(username: string): Promise<{
+  async getDiscordStatus(username: string, language: string = 'en'): Promise<{
     success: boolean;
     linked: boolean;
     user?: {
@@ -459,16 +483,24 @@ class ApiService {
       username: string;
       discriminator: string;
       avatar?: string;
-      global_name?: string;
+      globalName?: string;
     };
-    msg?: string;
+    message?: string;
   }> {
-    return this.request(`/discord/status?username=${encodeURIComponent(username)}`)
+    return this.request(`/discord/status?username=${encodeURIComponent(username)}&language=${language}`)
+  }
+
+  // Discord OAuth - 解绑 Discord 账号
+  async unlinkDiscord(username: string, language: string = 'en'): Promise<ReviewResponse> {
+    return this.request<ReviewResponse>('/discord/unlink', {
+      method: 'POST',
+      body: JSON.stringify({ username, language }),
+    })
   }
 
   // AuthMe 同步
-  async syncAuthme(language: string = 'en'): Promise<{ success: boolean; message?: string; msg?: string }> {
-    return this.request<{ success: boolean; message?: string; msg?: string }>('/admin/sync', {
+  async syncAuthme(language: string = 'en'): Promise<{ success: boolean; message?: string }> {
+    return this.request<{ success: boolean; message?: string }>('/admin/sync', {
       method: 'POST',
       body: JSON.stringify({ language }),
     })

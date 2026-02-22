@@ -60,7 +60,7 @@
             <label for="password" class="block text-sm font-medium text-white mb-1">{{ $t('register.form.password') }}</label>
             <input id="password" v-model="form.password" type="password" :placeholder="$t('register.form.password_placeholder')" class="glass-input" :class="{ 'glass-input-error': errors.password }" @blur="validatePassword" />
             <p v-if="errors.password" class="mt-1 text-sm text-red-400">{{ errors.password }}</p>
-            <p v-if="authmeConfig.password_regex" class="mt-1 text-xs text-gray-300">{{ $t('register.form.password_hint', { regex: authmeConfig.password_regex }) }}</p>
+            <p v-if="authmeConfig.passwordRegex" class="mt-1 text-xs text-gray-300">{{ $t('register.form.password_hint', { regex: authmeConfig.passwordRegex }) }}</p>
           </div>
 
           <div v-if="emailEnabled">
@@ -108,7 +108,7 @@
         <div class="rounded-lg border border-white/15 bg-white/5 p-4 text-sm text-white/80">
           <p class="mb-1"><strong>{{ $t('register.summary.username') }}:</strong> {{ getNormalizedUsername() }}</p>
           <p class="mb-1"><strong>{{ $t('register.summary.email') }}:</strong> {{ form.email }}</p>
-          <p v-if="questionnaireResult"><strong>{{ $t('register.summary.questionnaire') }}:</strong> {{ questionnaireResult.passed ? $t('questionnaire.passed') : $t('questionnaire.failed') }} ({{ questionnaireResult.score }}/{{ questionnaireResult.pass_score }})</p>
+          <p v-if="questionnaireResult"><strong>{{ $t('register.summary.questionnaire') }}:</strong> {{ questionnaireResult.passed ? $t('questionnaire.passed') : $t('questionnaire.failed') }} ({{ questionnaireResult.score }}/{{ questionnaireResult.passScore }})</p>
         </div>
 
         <div class="rounded-lg border border-white/10 bg-white/5 p-6 text-center">
@@ -125,13 +125,13 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, reactive, onMounted, watch } from 'vue'
+import { ref, computed, reactive, onMounted, watch, onUnmounted } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { apiService } from '@/services/api'
 import { useNotification } from '@/composables/useNotification'
 import DiscordLink from '@/components/DiscordLink.vue'
 import QuestionnaireForm from '@/components/QuestionnaireForm.vue'
-import type { ConfigResponse, QuestionnaireSubmission } from '@/services/api'
+import type { ConfigResponse, QuestionnaireSubmission, RegisterRequest } from '@/services/api'
 
 const { t, locale } = useI18n()
 const { success, error } = useNotification()
@@ -144,18 +144,21 @@ const sending = ref(false)
 const registrationSubmitted = ref(false)
 const registrationSuccessMessage = ref('')
 const config = ref<ConfigResponse>({
-  login: { enable_email: false, email_smtp: '' },
-  admin: {},
-  frontend: { theme: '', logo_url: '', announcement: '', web_server_prefix: '', username_regex: '' },
-  authme: { enabled: false, require_password: false, password_regex: '' },
-  captcha: { enabled: false, email_enabled: true, type: 'math' },
-  questionnaire: { enabled: false, pass_score: 60 }
+  authMethods: [],
+  theme: '',
+  logoUrl: '',
+  announcement: '',
+  webServerPrefix: '',
+  usernameRegex: '',
+  authme: { enabled: false, requirePassword: false, passwordRegex: '' },
+  captcha: { enabled: false, emailEnabled: true, type: 'math' },
+  questionnaire: { enabled: false, passScore: 60 }
 })
 
 const captchaImage = ref('')
 const captchaToken = ref('')
 const captchaEnabled = computed(() => config.value.captcha?.enabled || false)
-const emailEnabled = computed(() => config.value.captcha?.email_enabled !== false)
+const emailEnabled = computed(() => config.value.captcha?.emailEnabled !== false)
 
 const discordLinked = ref(false)
 const discordEnabled = computed(() => config.value.discord?.enabled || false)
@@ -169,7 +172,7 @@ const bedrockPrefix = computed(() => config.value.bedrock?.prefix || '.')
 const selectedPlatform = ref<'java' | 'bedrock'>('java')
 
 const authmeConfig = computed(() => config.value.authme)
-const shouldShowPassword = computed(() => authmeConfig.value?.enabled && authmeConfig.value?.require_password)
+const shouldShowPassword = computed(() => authmeConfig.value?.enabled && authmeConfig.value?.requirePassword)
 
 onMounted(async () => {
   try {
@@ -258,9 +261,9 @@ const normalizeUsernameForPlatform = () => {
 
 const getEffectiveUsernameRegex = () => {
   if (selectedPlatform.value === 'bedrock' && bedrockEnabled.value) {
-    return config.value.bedrock?.username_regex || '^[a-zA-Z0-9._-]{3,16}$'
+    return config.value.bedrock?.usernameRegex || '^[a-zA-Z0-9._-]{3,16}$'
   }
-  return config.value.frontend?.username_regex
+  return config.value.usernameRegex
 }
 
 const getNormalizedUsername = () => {
@@ -291,8 +294,8 @@ const validatePassword = () => {
   if (shouldShowPassword.value) {
     if (!form.password) {
       errors.password = t('register.validation.password_required')
-    } else if (authmeConfig.value?.password_regex && !new RegExp(authmeConfig.value.password_regex).test(form.password)) {
-      errors.password = t('register.validation.password_format', { regex: authmeConfig.value.password_regex })
+    } else if (authmeConfig.value?.passwordRegex && !new RegExp(authmeConfig.value.passwordRegex).test(form.password)) {
+      errors.password = t('register.validation.password_format', { regex: authmeConfig.value.passwordRegex })
     }
   }
 }
@@ -331,7 +334,7 @@ const isFinalStepValid = computed(() => {
   if (!isBasicStepValid.value) return false
   if (!questionnaireEnabled.value) return true
   if (!questionnaireResult.value) return false
-  return questionnaireResult.value.passed === true || questionnaireResult.value.manual_review_required === true
+  return questionnaireResult.value.passed === true || questionnaireResult.value.manualReviewRequired === true
 })
 
 const goToQuestionnaire = () => {
@@ -362,18 +365,25 @@ const onQuestionnairePassed = async (result: QuestionnaireSubmission) => {
 }
 
 const cooldownSeconds = ref(0)
-const cooldownTimer = ref<any>(null)
+const cooldownTimer = ref<ReturnType<typeof setInterval> | null>(null)
 const startCooldown = (seconds: number) => {
   cooldownSeconds.value = seconds
   if (cooldownTimer.value) clearInterval(cooldownTimer.value)
   cooldownTimer.value = setInterval(() => {
     cooldownSeconds.value--
     if (cooldownSeconds.value <= 0) {
-      clearInterval(cooldownTimer.value)
+      clearInterval(cooldownTimer.value!)
       cooldownTimer.value = null
     }
   }, 1000)
 }
+
+onUnmounted(() => {
+  if (cooldownTimer.value) {
+    clearInterval(cooldownTimer.value)
+    cooldownTimer.value = null
+  }
+})
 
 const sendCode = async () => {
   if (sending.value || cooldownSeconds.value > 0) return
@@ -386,11 +396,11 @@ const sendCode = async () => {
     if (res.success) {
       success(t('register.codeSent'))
       startCooldown(60)
-    } else if ((res as any).remaining_seconds && (res as any).remaining_seconds > 0) {
-      startCooldown((res as any).remaining_seconds)
-      error(res.msg || t('register.sendFailed'))
+    } else if (res.remainingSeconds && res.remainingSeconds > 0) {
+      startCooldown(res.remainingSeconds)
+      error(res.message || t('register.sendFailed'))
     } else {
-      error(res.msg || t('register.sendFailed'))
+      error(res.message || t('register.sendFailed'))
     }
   } catch {
     error(t('register.sendFailed'))
@@ -407,7 +417,7 @@ const handleSubmit = async () => {
   registrationSubmitted.value = false
   registrationSuccessMessage.value = ""
   try {
-    const registerData: any = {
+    const registerData: RegisterRequest = {
       username: getNormalizedUsername(),
       email: form.email.trim().toLowerCase(),
       language: locale.value,
@@ -425,11 +435,11 @@ const handleSubmit = async () => {
     const response = await apiService.register(registerData)
     if (response.success) {
       registrationSubmitted.value = true
-      registrationSuccessMessage.value = response.msg || t('register.success')
+      registrationSuccessMessage.value = response.message || t('register.success')
       success(registrationSuccessMessage.value)
     } else {
       registrationSubmitted.value = false
-      error(response.msg || t('register.failed'))
+      error(response.message || t('register.failed'))
       if (captchaEnabled.value) await refreshCaptcha()
     }
   } catch {

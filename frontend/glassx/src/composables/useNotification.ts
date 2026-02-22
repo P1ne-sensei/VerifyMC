@@ -1,18 +1,26 @@
-import { ref } from 'vue'
 import type { Notification } from '@/components/NotificationSystem.vue'
 
-// Global notification system
-const notificationSystem = ref<any>(null)
+interface NotificationSystem {
+  addNotification: (notification: Omit<Notification, 'id'>) => void
+}
+
+let notificationSystemInstance: NotificationSystem | null = null
 
 export const useNotification = () => {
-  const setNotificationSystem = (system: any) => {
-    notificationSystem.value = system
+  const setNotificationSystem = (system: NotificationSystem | null) => {
+    notificationSystemInstance = system
   }
 
   const showNotification = (notification: Omit<Notification, 'id'>) => {
-    if (notificationSystem.value) {
-      notificationSystem.value.addNotification(notification)
+    if (notificationSystemInstance) {
+      notificationSystemInstance.addNotification(notification)
+    } else {
+      console.warn('[useNotification] Notification system not initialized. Call setNotificationSystem first.')
     }
+  }
+
+  const clearNotificationSystem = () => {
+    notificationSystemInstance = null
   }
 
   const success = (title: string, message?: string, duration?: number) => {
@@ -37,6 +45,7 @@ export const useNotification = () => {
     success,
     error,
     warning,
-    info
+    info,
+    clearNotificationSystem
   }
 }

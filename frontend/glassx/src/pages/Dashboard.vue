@@ -106,7 +106,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted, inject, markRaw } from 'vue'
+import { ref, computed, onMounted, inject, markRaw, defineAsyncComponent, type Ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import {
@@ -124,23 +124,27 @@ import {
 import { sessionService, type UserInfo } from '@/services/session'
 import LanguageSwitcher from '@/components/LanguageSwitcher.vue'
 
-// Section components
-import ProfileSection from '@/components/dashboard/ProfileSection.vue'
-import DownloadCenter from '@/components/dashboard/DownloadCenter.vue'
-import ServerStatus from '@/components/dashboard/ServerStatus.vue'
-import UserManagement from '@/components/dashboard/UserManagement.vue'
-import AuditLog from '@/components/dashboard/AuditLog.vue'
+// Section components - lazy loaded for better performance
+const ProfileSection = defineAsyncComponent(() => import('@/components/dashboard/ProfileSection.vue'))
+const DownloadCenter = defineAsyncComponent(() => import('@/components/dashboard/DownloadCenter.vue'))
+const ServerStatus = defineAsyncComponent(() => import('@/components/dashboard/ServerStatus.vue'))
+const UserManagement = defineAsyncComponent(() => import('@/components/dashboard/UserManagement.vue'))
+const AuditLog = defineAsyncComponent(() => import('@/components/dashboard/AuditLog.vue'))
+
+interface AppConfig {
+  webServerPrefix?: string
+}
 
 const { t } = useI18n()
 const router = useRouter()
-const config = inject('config', { value: {} as any })
+const config = inject<Ref<AppConfig>>('config', ref({}))
 
 const sidebarCollapsed = ref(false)
 const mobileMenuOpen = ref(false)
 const activeSection = ref('profile')
 const userInfo = ref<UserInfo | null>(null)
 
-const serverName = computed(() => config.value?.frontend?.web_server_prefix || 'VerifyMC')
+const serverName = computed(() => config.value?.webServerPrefix || 'VerifyMC')
 const isAdmin = computed(() => sessionService.isAdmin())
 
 const playerMenuItems = computed(() => [

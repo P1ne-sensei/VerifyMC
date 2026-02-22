@@ -36,7 +36,7 @@
           </div>
         </div>
         <a
-          :href="resource.url"
+          :href="getSafeUrl(resource.url)"
           target="_blank"
           rel="noopener noreferrer"
           class="download-btn"
@@ -82,7 +82,6 @@
 
 <script setup lang="ts">
 import { ref, onMounted, markRaw } from 'vue'
-import { useI18n } from 'vue-i18n'
 import {
   Download,
   Package,
@@ -95,7 +94,22 @@ import {
 } from 'lucide-vue-next'
 import { apiService, type DownloadResource } from '@/services/api'
 
-const { t } = useI18n()
+const isSafeUrl = (url: string): boolean => {
+  try {
+    if (!url.startsWith('http://') && !url.startsWith('https://')) {
+      return false
+    }
+    const parsedUrl = new URL(url)
+    return ['http:', 'https:'].includes(parsedUrl.protocol)
+  } catch {
+    return false
+  }
+}
+
+const getSafeUrl = (url: string | undefined): string => {
+  if (!url) return '#'
+  return isSafeUrl(url) ? url : '#'
+}
 
 const loading = ref(true)
 const resources = ref<DownloadResource[]>([])

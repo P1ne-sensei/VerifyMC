@@ -73,7 +73,7 @@ import { ref, computed, onMounted, onUnmounted, watch, nextTick } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { Globe, ChevronDown } from 'lucide-vue-next'
 
-const { locale, t } = useI18n()
+const { locale } = useI18n()
 
 const isOpen = ref(false)
 const hoveredLanguage = ref<string | null>(null)
@@ -108,12 +108,15 @@ const toggleDropdown = () => {
 
 const switchLanguage = (langCode: string) => {
   locale.value = langCode
-  localStorage.setItem('language', langCode)
   isOpen.value = false
   hoveredLanguage.value = null
-  
-  // Update document language
-  document.documentElement.lang = langCode
+
+  // SSR 兼容性：仅在浏览器环境中访问浏览器 API
+  if (typeof window !== 'undefined') {
+    localStorage.setItem('language', langCode)
+    // Update document language
+    document.documentElement.lang = langCode
+  }
 }
 
 const closeDropdown = (event: Event) => {
@@ -150,21 +153,25 @@ const handleKeyDown = (event: KeyboardEvent) => {
   }
 }
 
-// 初始化优先读取 localStorage
-const savedLang = localStorage.getItem('language') || localStorage.getItem('lang')
-if (savedLang && savedLang !== locale.value) {
-  locale.value = savedLang
-}
-
-watch(locale, (val) => {
-  localStorage.setItem('language', val)
-  localStorage.setItem('lang', val)
-})
-
+// SSR 兼容性：初始化语言设置移到 onMounted 中
 onMounted(() => {
+  // 初始化优先读取 localStorage
+  const savedLang = localStorage.getItem('language') || localStorage.getItem('lang')
+  if (savedLang && savedLang !== locale.value) {
+    locale.value = savedLang
+  }
+
   document.addEventListener('click', closeDropdown)
   document.addEventListener('keydown', handleKeyDown)
   document.documentElement.lang = currentLocale.value
+})
+
+// 监听语言变化，保存到 localStorage
+watch(locale, (val) => {
+  if (typeof window !== 'undefined') {
+    localStorage.setItem('language', val)
+    localStorage.setItem('lang', val)
+  }
 })
 
 onUnmounted(() => {

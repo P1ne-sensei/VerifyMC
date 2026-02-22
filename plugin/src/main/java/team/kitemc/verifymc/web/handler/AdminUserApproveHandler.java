@@ -2,6 +2,7 @@ package team.kitemc.verifymc.web.handler;
 
 import com.sun.net.httpserver.HttpExchange;
 import com.sun.net.httpserver.HttpHandler;
+import org.json.JSONException;
 import org.json.JSONObject;
 import team.kitemc.verifymc.core.PluginContext;
 import team.kitemc.verifymc.db.AuditRecord;
@@ -9,12 +10,14 @@ import team.kitemc.verifymc.web.ApiResponseFactory;
 import team.kitemc.verifymc.web.WebResponseHelper;
 
 import java.io.IOException;
+import java.util.regex.Pattern;
 
 /**
  * Approves a pending user — updates status to "approved" and whitelists in-game.
  * Extracted from WebServer.start() — the "/api/admin/user/approve" context.
  */
 public class AdminUserApproveHandler implements HttpHandler {
+    private static final Pattern VALID_USERNAME = Pattern.compile("^[a-zA-Z0-9_]{1,16}$");
     private final PluginContext ctx;
 
     public AdminUserApproveHandler(PluginContext ctx) {
@@ -29,7 +32,14 @@ public class AdminUserApproveHandler implements HttpHandler {
         String operator = AdminAuthUtil.requireAdmin(exchange, ctx);
         if (operator == null) return;
 
-        JSONObject req = WebResponseHelper.readJson(exchange);
+        JSONObject req;
+        try {
+            req = WebResponseHelper.readJson(exchange);
+        } catch (JSONException e) {
+            WebResponseHelper.sendJson(exchange, ApiResponseFactory.failure(
+                    ctx.getMessage("error.invalid_json", "en")), 400);
+            return;
+        }
         String target = req.optString("username", req.optString("uuid", ""));
         String language = req.optString("language", "en");
 
@@ -39,12 +49,19 @@ public class AdminUserApproveHandler implements HttpHandler {
             return;
         }
 
+        // Validate username format to prevent command injection
+        if (!VALID_USERNAME.matcher(target).matches()) {
+            WebResponseHelper.sendJson(exchange, ApiResponseFactory.failure(
+                    ctx.getMessage("admin.invalid_username", language)));
+            return;
+        }
+
         boolean ok = ctx.getUserDao().updateUserStatus(target, "approved", operator);
         if (ok) {
             org.bukkit.Bukkit.getScheduler().runTask(ctx.getPlugin(), () ->
                     org.bukkit.Bukkit.dispatchCommand(org.bukkit.Bukkit.getConsoleSender(), "whitelist add " + target));
 
-            if (ctx.getAuthmeService().isAuthmeEnabled()) {
+            if (ctx.getAuthmeService() != null && ctx.getAuthmeService().isAuthmeEnabled()) {
                 var user = ctx.getUserDao().getUserByUsername(target);
                 if (user != null) {
                     String storedPassword = (String) user.get("password");
