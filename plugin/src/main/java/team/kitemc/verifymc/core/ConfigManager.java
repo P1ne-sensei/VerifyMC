@@ -262,4 +262,27 @@ public class ConfigManager {
     public boolean getMysqlAllowPublicKeyRetrieval() {
         return getConfig().getBoolean("mysql.allowPublicKeyRetrieval", false);
     }
+
+    public java.util.List<java.util.Map<String, Object>> getDownloadResources() {
+        java.util.List<java.util.Map<String, Object>> resources = new java.util.ArrayList<>();
+        org.bukkit.configuration.ConfigurationSection section = getConfig().getConfigurationSection("downloads");
+        if (section == null) {
+            return resources;
+        }
+        for (String key : section.getKeys(false)) {
+            org.bukkit.configuration.ConfigurationSection resourceSection = section.getConfigurationSection(key);
+            if (resourceSection != null) {
+                java.util.Map<String, Object> resource = new java.util.HashMap<>();
+                resource.put("id", key);
+                resource.put("name", resourceSection.getString("name", key));
+                resource.put("description", resourceSection.getString("description", ""));
+                resource.put("version", resourceSection.getString("version", ""));
+                resource.put("size", resourceSection.getString("size", ""));
+                resource.put("url", resourceSection.getString("url", ""));
+                resource.put("icon", resourceSection.getString("icon", "package"));
+                resources.add(resource);
+            }
+        }
+        return resources;
+    }
 }
