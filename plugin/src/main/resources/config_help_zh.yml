@@ -11,6 +11,8 @@ debug: false
 # ----------------------------------------
 # 网页服务使用的端口。
 web_port: 8080
+# WebSocket 服务使用的端口。
+ws_port: 8081
 # 显示在网页界面上的服务器名称。
 web_server_prefix: '[ Name ]'
 
@@ -47,9 +49,6 @@ register:
 username_regex: "^[a-zA-Z0-9_-]{3,16}$"
 # 如果为 false，则仅大小写不同的用户名（例如 "Player" 和 "player"）将被视为相同。
 username_case_sensitive: false
-# 访问网页管理面板的密码。
-admin:
-  password: your_custom_password
 
 # ----------------------------------------
 # 用户通知
@@ -115,8 +114,8 @@ email_domain_whitelist:
 # ----------------------------------------
 # 存储
 # ----------------------------------------
-# 存储类型，可选: data（本地文件）, mysql（外部数据库）
-storage: data
+# 存储类型，可选: file（本地文件）, mysql（外部数据库）
+storage: file
 mysql:
   host: localhost
   port: 3306

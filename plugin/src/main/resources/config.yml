@@ -1,6 +1,7 @@
 language: en
 debug: false
 web_port: 8080
+ws_port: 8081
 web_server_prefix: '[ Name ]'
 auth_methods:
   - email
@@ -11,8 +12,6 @@ register:
   auto_approve: false
 username_regex: "^[a-zA-Z0-9_-]{3,16}$"
 username_case_sensitive: false
-admin:
-  password: your_custom_password
 user_notification:
   enabled: true
   on_approve: true
@@ -42,7 +41,7 @@ email_domain_whitelist:
   - icloud.com
   - yahoo.com
   - foxmail.com
-storage: data
+storage: file
 mysql:
     host: localhost
     port: 3306
