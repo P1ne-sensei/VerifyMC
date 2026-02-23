@@ -6,6 +6,7 @@ import org.json.JSONException;
 import org.json.JSONObject;
 import team.kitemc.verifymc.core.OpsManager;
 import team.kitemc.verifymc.core.PluginContext;
+import team.kitemc.verifymc.db.AuditRecord;
 import team.kitemc.verifymc.db.UserDao;
 import team.kitemc.verifymc.service.AuthmeService;
 import team.kitemc.verifymc.util.PasswordUtil;
@@ -103,6 +104,10 @@ public class LoginHandler implements HttpHandler {
             return;
         }
 
+        if (storedPassword != null && PasswordUtil.needsMigration(storedPassword)) {
+            migratePassword(actualUsername, password, storedPassword);
+        }
+
         WebAuthHelper webAuthHelper = ctx.getWebAuthHelper();
         String token = webAuthHelper.generateToken(actualUsername);
         boolean isAdmin = opsManager != null && opsManager.isOp(actualUsername);
@@ -111,5 +116,29 @@ public class LoginHandler implements HttpHandler {
         resp.put("username", actualUsername);
         resp.put("isAdmin", isAdmin);
         WebResponseHelper.sendJson(exchange, resp);
+    }
+
+    private void migratePassword(String username, String plainPassword, String oldStoredPassword) {
+        try {
+            String migrationType = PasswordUtil.isPlaintext(oldStoredPassword) ? "plaintext" : "unsalted-sha256";
+            boolean success = ctx.getUserDao().updateUserPassword(username, plainPassword);
+            
+            if (success) {
+                ctx.getPlugin().getLogger().info("[VerifyMC] Password migration successful - User: " + username + 
+                        ", From: " + migrationType + ", To: salted-sha256");
+                
+                if (ctx.getAuditDao() != null) {
+                    ctx.getAuditDao().addAudit(new AuditRecord(
+                            "password_migration", "system", username, 
+                            "Migrated from " + migrationType + " to salted-sha256", 
+                            System.currentTimeMillis()));
+                }
+            } else {
+                ctx.getPlugin().getLogger().warning("[VerifyMC] Password migration failed - User: " + username);
+            }
+        } catch (Exception e) {
+            ctx.getPlugin().getLogger().log(java.util.logging.Level.WARNING, 
+                    "[VerifyMC] Password migration error - User: " + username, e);
+        }
     }
 }
