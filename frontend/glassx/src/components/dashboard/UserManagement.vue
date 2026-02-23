@@ -261,12 +261,13 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
+import { ref, computed, inject, onMounted, onUnmounted, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { RefreshCw, Key, Trash2, Ban, CheckCircle } from 'lucide-vue-next'
 import { useNotification } from '@/composables/useNotification'
 import { useAdminUsers } from '@/composables/useAdminUsers'
 import { apiService, type PendingUser } from '@/services/api'
+import { sessionService } from '@/services/session'
 import Tabs from '@/components/ui/Tabs.vue'
 import Table from '@/components/ui/Table.vue'
 import TableHeader from '@/components/ui/TableHeader.vue'
@@ -283,6 +284,8 @@ import VersionUpdateNotification from '@/components/ui/VersionUpdateNotification
 
 const { t, locale } = useI18n()
 const notification = useNotification()
+
+const getWsPort = inject<() => number>('getWsPort', () => window.location.port ? (parseInt(window.location.port, 10) + 1) : 8081)
 
 // Debounce timer for search
 let searchDebounceTimer: ReturnType<typeof setTimeout> | null = null
@@ -616,8 +619,11 @@ onMounted(async () => {
   if (window.WebSocket) {
     const wsProtocol = window.location.protocol === 'https:' ? 'wss' : 'ws'
     const wsHost = window.location.hostname
-    const wsPort = window.location.port ? (parseInt(window.location.port) + 1) : 8081
-    const wsUrl = `${wsProtocol}://${wsHost}:${wsPort}`
+    const wsPort = getWsPort()
+    const token = sessionService.getToken()
+    const wsUrl = token
+      ? `${wsProtocol}://${wsHost}:${wsPort}/?token=${encodeURIComponent(token)}`
+      : `${wsProtocol}://${wsHost}:${wsPort}`
     try {
       ws = new WebSocket(wsUrl)
       ws.onmessage = () => {
