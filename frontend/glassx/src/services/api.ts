@@ -14,6 +14,7 @@ export interface ConfigResponse {
   logoUrl: string
   announcement: string
   webServerPrefix: string
+  wsPort?: number
   usernameRegex: string
   authme: {
     enabled: boolean
